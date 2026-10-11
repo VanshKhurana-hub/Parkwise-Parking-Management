@@ -146,6 +146,20 @@ function CheckinModal({
   const [phoneNumber, setPhoneNumber] = useState("");
   const [spotId, setSpotId] = useState(initialSpot);
   const [busy, setBusy] = useState(false);
+  const [pendingCheckout, setPendingCheckout] = useState<Ticket | null>(null);
+  const modalTriggerRef = useRef<HTMLElement | null>(null);
+
+  function requestCheckout(ticket: Ticket, trigger: HTMLButtonElement) {
+    modalTriggerRef.current = trigger;
+    setPendingCheckout(ticket);
+  }
+
+  async function confirmCheckout() {
+    if (!pendingCheckout) return;
+    const ticketId = pendingCheckout.id;
+    setPendingCheckout(null);
+    await completeCheckout(ticketId);
+  }
   const [recommendedSpot, setRecommendedSpot] = useState("");
   const plateRef = useRef<HTMLInputElement>(null);
   const availableSpots = spots.filter(
@@ -254,6 +268,20 @@ function AppContent() {
   const [ticketResults, setTicketResults] = useState<Ticket[]>([]);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingCheckout, setPendingCheckout] = useState<Ticket | null>(null);
+  const modalTriggerRef = useRef<HTMLElement | null>(null);
+
+  function requestCheckout(ticket: Ticket, trigger: HTMLButtonElement) {
+    modalTriggerRef.current = trigger;
+    setPendingCheckout(ticket);
+  }
+
+  async function confirmCheckout() {
+    if (!pendingCheckout) return;
+    const ticketId = pendingCheckout.id;
+    setPendingCheckout(null);
+    await completeCheckout(ticketId);
+  }
 
   async function searchTickets(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -404,7 +432,7 @@ function AppContent() {
               {ticketResults.map((ticket) => (
                 <article className="ticket-result" key={ticket.id}>
                   <div><strong>{ticket.license_plate}</strong><span>{vehicleLabels[ticket.vehicle_type]} · Spot {ticket.spot_id}</span></div>
-                  <button type="button" className="button button-primary" onClick={() => completeCheckout(ticket.id)} disabled={busy}>
+                  <button type="button" className="button button-primary" onClick={(event) => requestCheckout(ticket, event.currentTarget)} disabled={busy}>
                     Check out <ArrowUpRight size={16} aria-hidden="true} />
                   </button>
                 </article>
@@ -422,6 +450,52 @@ function AppContent() {
         </section>
       </main>
 
+      {pendingCheckout && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPendingCheckout(null);
+          }}
+        >
+          <div
+            className="modal checkout-confirmation"
+            id="checkout-confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="checkout-confirm-title"
+            aria-describedby="checkout-confirm-description"
+          >
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">CONFIRM VEHICLE DEPARTURE</p>
+                <h2 id="checkout-confirm-title">Check out this vehicle?</h2>
+                <p id="checkout-confirm-description" className="muted">
+                  This will end the active parking session and make the spot available again.
+                  The final parking charge will be calculated.
+                </p>
+              </div>
+            </div>
+            <dl className="checkout-confirm-details">
+              <div><dt>Vehicle</dt><dd>{pendingCheckout.license_plate}</dd></div>
+              <div><dt>Parking spot</dt><dd>{pendingCheckout.spot_id}</dd></div>
+              <div><dt>Vehicle type</dt><dd>{vehicleLabels[pendingCheckout.vehicle_type]}</dd></div>
+            </dl>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="button button-outline"
+                data-initial-focus
+                onClick={() => setPendingCheckout(null)}
+              >
+                Keep vehicle parked
+              </button>
+              <button type="button" className="button button-danger" onClick={() => void confirmCheckout()}>
+                Confirm checkout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {modalOpen && (
         <CheckinModal
           spots={spots}
