@@ -239,16 +239,61 @@ function CheckinModal({
   );
 }
 
-function Dashboard() {
+
+function AppContent() {
+  const { fontScale, highContrast, darkMode, changeFontScale, toggleHighContrast, toggleDarkMode } =
+    useAccessibility();
+  const [stats, setStats] = useState<Stats>(emptyStats);
+  const [modalOpen, setModalOpen] = useState(false);
+
   return (
-    <ErrorBoundary>
-      <div className="app-shell">
-        <StatCard label="Total spots" value={emptyStats.total_spots} icon={<CarFront />} detail="Across 3 zones" tone="blue" />
-        <Legend />
-        <Rate vehicle={vehicleLabels.standard} amount="$4" icon={<CarFront />} />
-      </div>
-    </ErrorBoundary>
+    <div className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="#" aria-label="Parkwise dashboard">
+          <span className="brand-mark" aria-hidden="true"><CarFront size={24} /></span>
+          <span>parkwise<span className="brand-period">.</span></span>
+        </a>
+        <nav aria-label="Accessibility and main actions" className="topbar-controls">
+          <div className="font-controls" aria-label="Text size controls">
+            <button className="icon-button" type="button" aria-label="Decrease text size" title="Decrease text size" onClick={() => changeFontScale(-1)}>A−</button>
+            <span className="font-size-label" aria-live="polite">{["Small", "Medium", "Large", "Extra large"][fontScale]}</span>
+            <button className="icon-button" type="button" aria-label="Increase text size" title="Increase text size" onClick={() => changeFontScale(1)}>A+</button>
+          </div>
+          <button className="icon-button labeled-control" type="button" aria-label="Toggle high contrast mode" aria-pressed={highContrast} onClick={toggleHighContrast}>
+            <Accessibility size={18} aria-hidden="true" /><span>High contrast</span>
+          </button>
+          <button className="icon-button labeled-control" type="button" aria-label={`Toggle ${darkMode ? "light" : "dark"} mode`} aria-pressed={darkMode} onClick={toggleDarkMode}>
+            <SunMoon size={18} aria-hidden="true" /><span>{darkMode ? "Dark mode" : "Light mode"}</span>
+          </button>
+          <button className="button button-primary new-entry" type="button" aria-haspopup="dialog" aria-expanded={modalOpen} onClick={() => setModalOpen(true)}>
+            <Plus size={18} aria-hidden="true" /><span>New entry</span>
+          </button>
+        </nav>
+      </header>
+
+      <main className="page-content">
+        <section className="page-heading" aria-labelledby="page-title">
+          <div>
+            <p className="eyebrow">PARKING OPERATIONS</p>
+            <h1 id="page-title">Good day, Vansh <span aria-hidden="true">✳</span></h1>
+            <p className="muted">Welcome back, Vansh. Here’s what’s happening in your parking facility today.</p>
+          </div>
+          <p className="today-label"><Clock3 size={16} aria-hidden="true" /> Live facility overview</p>
+        </section>
+
+        <section className="stats-grid" aria-label="Facility statistics" aria-live="polite">
+          <StatCard label="Total spots" value={stats.total_spots} icon={<CarFront />} detail="Across 3 zones" tone="blue" />
+          <StatCard label="Available now" value={stats.free_spots} icon={<Check />} detail={`${stats.reserved_count} reserved`} tone="green" />
+          <StatCard label="Currently parked" value={stats.occupied_count} icon={<ArrowDownToLine />} detail={`of ${stats.total_spots} total spaces`} tone="purple" />
+          <StatCard label="Today's revenue" value={currency.format(stats.daily_revenue)} icon={<CircleDollarSign />} detail="From completed checkouts" tone="orange" />
+        </section>
+      </main>
+    </div>
   );
+}
+
+function Dashboard() {
+  return <ErrorBoundary><AppContent /></ErrorBoundary>;
 }
 
 export default Dashboard;
