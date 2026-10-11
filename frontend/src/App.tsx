@@ -58,17 +58,22 @@ function readStoredCheckoutQuery(): { value: string; storageError: boolean } {
 function AppContent() {
   const { fontScale, highContrast, darkMode, changeFontScale, toggleHighContrast, toggleDarkMode } =
     useAccessibility();
+  const [storedCheckoutQuery] = useState(readStoredCheckoutQuery);
   const [spots, setSpots] = useState<Spot[]>([]);
   const [stats, setStats] = useState<Stats>(emptyStats);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(() =>
+    storedCheckoutQuery.storageError
+      ? { text: "Could not restore the checkout search text from this browser.", error: true }
+      : null,
+  );
   const [search, setSearch] = useState("");
   const [spotStatusFilter, setSpotStatusFilter] = useState<SpotStatusFilter>("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [pendingCheckout, setPendingCheckout] = useState<Ticket | null>(null);
   const [selectedSpot, setSelectedSpot] = useState("");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(storedCheckoutQuery.value);
   const [ticketResults, setTicketResults] = useState<Ticket[]>([]);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [busy, setBusy] = useState(false);
@@ -99,7 +104,17 @@ function AppContent() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  // Local storage persistence will be integrated in the next release step
+  useEffect(() => {
+    try {
+      if (query) localStorage.setItem(checkoutQueryStorageKey, query);
+      else localStorage.removeItem(checkoutQueryStorageKey);
+    } catch {
+      setNotice({
+        text: "Could not save the checkout search text. It will be cleared when you leave this page.",
+        error: true,
+      });
+    }
+  }, [query]);
 
   const openCheckin = useCallback((spotId = "") => {
     modalTriggerRef.current = document.activeElement as HTMLElement;

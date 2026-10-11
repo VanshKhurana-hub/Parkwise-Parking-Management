@@ -1,8 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import App from "./App";
+import { AccessibilityProvider } from "./AccessibilityContext";
+import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <div>Parkwise</div>
+    <AccessibilityProvider>
+      <App />
+    </AccessibilityProvider>
   </React.StrictMode>,
 );
