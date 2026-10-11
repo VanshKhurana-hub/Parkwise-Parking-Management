@@ -62,3 +62,50 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
+
+
+def ticket_response(ticket: ParkingTicket) -> TicketResponse:
+    return TicketResponse(
+        id=ticket.id,
+        license_plate=ticket.license_plate,
+        vehicle_type=ticket.vehicle_type,
+        phone_number=ticket.phone_number,
+        spot_id=ticket.spot_id,
+        checked_in_at=ticket.checked_in_at,
+        checked_out_at=ticket.checked_out_at,
+        amount_paid=float(ticket.amount_paid) if ticket.amount_paid is not None else None,
+    )
+
+
+@app.get("/api/spots", response_model=list[SpotResponse])
+def list_spots(session: Session = Depends(get_session)) -> list[SpotResponse]:
+    spots = session.scalars(select(ParkingSpot).order_by(ParkingSpot.zone, ParkingSpot.id)).all()
+    active_by_spot = {
+        ticket.spot_id: ticket
+        for ticket in session.scalars(
+            select(ParkingTicket).where(ParkingTicket.checked_out_at.is_(None))
+        ).all()
+    }
+    return [
+        SpotResponse(
+            id=spot.id,
+            zone=spot.zone,
+            spot_type=spot.spot_type,
+            row=spot.row,
+            column=spot.column,
+            status=spot.status,
+            ticket_id=active_by_spot[spot.id].id if spot.id in active_by_spot else None,
+            license_plate=active_by_spot[spot.id].license_plate if spot.id in active_by_spot else None,
+            vehicle_type=active_by_spot[spot.id].vehicle_type if spot.id in active_by_spot else None,
+            checked_in_at=active_by_spot[spot.id].checked_in_at if spot.id in active_by_spot else None,
+        )
+        for spot in spots
+    ]
+
+
+@app.get("/api/spots/recommendation")
+def get_recommendation(
+    vehicle_type: str = Query(pattern="^(standard|ev|accessible)$"),
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    return {"spot_id": recommend_spot(session, vehicle_type).id}
