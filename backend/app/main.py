@@ -109,3 +109,30 @@ def get_recommendation(
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     return {"spot_id": recommend_spot(session, vehicle_type).id}
+
+
+@app.post("/api/checkin", response_model=TicketResponse, status_code=201)
+def create_checkin(
+    request: CheckInRequest,
+    session: Session = Depends(get_session),
+) -> TicketResponse:
+    with write_lock:
+        return ticket_response(check_in(session, request))
+
+
+@app.post("/api/checkout", response_model=CheckoutResponse)
+def create_checkout(
+    request: CheckoutRequest,
+    session: Session = Depends(get_session),
+) -> CheckoutResponse:
+    with write_lock:
+        ticket, duration_minutes, amount = checkout(
+            session,
+            request.ticket_id,
+            request.checked_out_at,
+        )
+        return CheckoutResponse(
+            ticket=ticket_response(ticket),
+            duration_minutes=duration_minutes,
+            amount_paid=float(amount),
+        )
