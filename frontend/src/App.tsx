@@ -80,6 +80,32 @@ function Rate({ vehicle, amount, icon }: { vehicle: string; amount: string; icon
   return <div className="rate-row"><span className="rate-icon" aria-hidden="true">{icon}</span><span>{vehicle}</span><strong>{amount}<small>/hr</small></strong></div>;
 }
 
+
+function zoneSubtitle(zone: string) {
+  if (zone === "Zone A") return "Standard";
+  if (zone === "Zone B") return "EV charging";
+  return "Accessible";
+}
+
+function SpotButton({ spot, onSelect }: { spot: Spot; onSelect: (spot: Spot) => void }) {
+  const Icon = spot.spot_type === "ev" ? PlugZap : spot.spot_type === "accessible" ? Accessibility : CarFront;
+  const statusText = spot.status[0].toUpperCase() + spot.status.slice(1);
+  return (
+    <button
+      className={`spot-card spot-${spot.status}`}
+      type="button"
+      onClick={() => onSelect(spot)}
+      disabled={spot.status === "reserved"}
+      aria-label={`${spot.id}, ${vehicleLabels[spot.spot_type]} spot, ${statusText}${spot.license_plate ? `, vehicle ${spot.license_plate}` : ""}`}
+      title={spot.status === "reserved" ? `${spot.id}: Reserved` : `${spot.id}: ${statusText}`}
+    >
+      <span className="spot-top"><span>{spot.id}</span><Icon size={16} aria-hidden="true" /></span>
+      <span className="spot-state">{statusText}</span>
+      {spot.license_plate && <span className="spot-plate">{spot.license_plate}</span>}
+    </button>
+  );
+}
+
 function Dashboard() {
   return (
     <ErrorBoundary>
