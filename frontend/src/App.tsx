@@ -55,6 +55,398 @@ function readStoredCheckoutQuery(): { value: string; storageError: boolean } {
   }
 }
 
+function AppContent() {
+  const { fontScale, highContrast, darkMode, changeFontScale, toggleHighContrast, toggleDarkMode } =
+    useAccessibility();
+  const [spots, setSpots] = useState<Spot[]>([]);
+  const [stats, setStats] = useState<Stats>(emptyStats);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const [search, setSearch] = useState("");
+  const [spotStatusFilter, setSpotStatusFilter] = useState<SpotStatusFilter>("all");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [pendingCheckout, setPendingCheckout] = useState<Ticket | null>(null);
+  const [selectedSpot, setSelectedSpot] = useState("");
+  const [query, setQuery] = useState("");
+  const [ticketResults, setTicketResults] = useState<Ticket[]>([]);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [busy, setBusy] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const modalTriggerRef = useRef<HTMLElement | null>(null);
+
+  const refresh = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
+    setLoadError("");
+    try {
+      const [nextSpots, nextStats] = await Promise.all([api.spots(), api.stats()]);
+      setSpots(nextSpots);
+      setStats(nextStats);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load parking data.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh(true);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
+  // Local storage persistence will be integrated in the next release step
+
+  const openCheckin = useCallback((spotId = "") => {
+    modalTriggerRef.current = document.activeElement as HTMLElement;
+    setSelectedSpot(spotId);
+    setModalOpen(true);
+  }, []);
+  const handleModalError = useCallback((message: string) => {
+    setNotice({ text: message, error: true });
+  }, []);
+
+  useEffect(() => {
+    function onShortcut(event: KeyboardEvent) {
+      if (!event.altKey || event.ctrlKey || event.metaKey) return;
+      if (event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        openCheckin();
+      }
+      if (event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [openCheckin]);
+
+  useEffect(() => {
+    if (modalOpen) {
+      document.querySelector<HTMLElement>("#checkin-dialog input")?.focus();
+      return;
+    }
+    if (pendingCheckout) {
+      document.querySelector<HTMLElement>("#checkout-confirm-dialog [data-initial-focus]")?.focus();
+      return;
+    }
+    modalTriggerRef.current?.focus();
+  }, [modalOpen, pendingCheckout]);
+
+  const filteredSpots = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return spots.filter((spot) =>
+      (spotStatusFilter === "all" || spot.status === spotStatusFilter) &&
+      (!term ||
+        spot.id.toLowerCase().includes(term) ||
+        (spot.license_plate ?? "").toLowerCase().includes(term)),
+    );
+  }, [search, spotStatusFilter, spots]);
+  const zones = useMemo(() => [...new Set(filteredSpots.map((spot) => spot.zone))], [filteredSpots]);
+
+  async function searchTickets(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanQuery = query.trim();
+    if (!cleanQuery) {
+      setNotice({ text: "Enter a ticket ID or license plate to search.", error: true });
+      return;
+    }
+    setBusy(true);
+    setReceipt(null);
+    try {
+      const results = await api.searchTickets(cleanQuery);
+      setTicketResults(results);
+      if (!results.length) setNotice({ text: "No active parking tickets matched that search.", error: true });
+    } catch (error) {
+      setNotice({ text: error instanceof Error ? error.message : "Ticket search failed.", error: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function completeCheckout(ticketId: string) {
+    setBusy(true);
+    try {
+      const result = await api.checkout(ticketId);
+      setReceipt(result);
+      setTicketResults([]);
+      setQuery("");
+      setNotice({ text: `Checkout complete. ${currency.format(result.amount_paid)} collected.`, error: false });
+      await refresh();
+    } catch (error) {
+      setNotice({ text: error instanceof Error ? error.message : "Checkout failed.", error: true });
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function requestCheckout(ticket: Ticket, trigger: HTMLButtonElement) {
+    modalTriggerRef.current = trigger;
+    setPendingCheckout(ticket);
+  }
+
+  async function confirmCheckout() {
+    if (!pendingCheckout) return;
+    const ticketId = pendingCheckout.id;
+    setPendingCheckout(null);
+    await completeCheckout(ticketId);
+  }
+
+  function handleSpot(spot: Spot) {
+    if (spot.status === "available") openCheckin(spot.id);
+    else if (spot.status === "occupied" && spot.ticket_id) {
+      setQuery(spot.ticket_id);
+      setTicketResults([]);
+      setReceipt(null);
+      document.getElementById("checkout-panel")?.scrollIntoView({ block: "center" });
+      window.setTimeout(() => document.getElementById("checkout-query")?.focus(), 0);
+    }
+  }
+
+  function onModalKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      if (modalOpen) setModalOpen(false);
+      else setPendingCheckout(null);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = event.currentTarget.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled])',
+    );
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="#" aria-label="Parkwise dashboard">
+          <span className="brand-mark" aria-hidden="true"><CarFront size={24} /></span>
+          <span>parkwise<span className="brand-period">.</span></span>
+        </a>
+        <nav aria-label="Accessibility and main actions" className="topbar-controls">
+          <div className="font-controls" aria-label="Text size controls">
+            <button className="icon-button" type="button" aria-label="Decrease text size" title="Decrease text size" onClick={() => changeFontScale(-1)}>A−</button>
+            <span className="font-size-label" aria-live="polite">{["Small", "Medium", "Large", "Extra large"][fontScale]}</span>
+            <button className="icon-button" type="button" aria-label="Increase text size" title="Increase text size" onClick={() => changeFontScale(1)}>A+</button>
+          </div>
+          <button className="icon-button labeled-control" type="button" aria-label="Toggle high contrast mode" aria-pressed={highContrast} onClick={toggleHighContrast}>
+            <Accessibility size={18} aria-hidden="true" /><span>High contrast</span>
+          </button>
+          <button className="icon-button labeled-control" type="button" aria-label={`Toggle ${darkMode ? "light" : "dark"} mode`} aria-pressed={darkMode} onClick={toggleDarkMode}>
+            <SunMoon size={18} aria-hidden="true" /><span>{darkMode ? "Dark mode" : "Light mode"}</span>
+          </button>
+          <button className="button button-primary new-entry" type="button" aria-haspopup="dialog" aria-expanded={modalOpen} onClick={() => openCheckin()}>
+            <Plus size={18} aria-hidden="true" /><span>New entry</span>
+          </button>
+        </nav>
+      </header>
+
+      <main className="page-content">
+        <section className="page-heading" aria-labelledby="page-title">
+          <div>
+            <p className="eyebrow">PARKING OPERATIONS</p>
+            <h1 id="page-title">Good day, Vansh <span aria-hidden="true">✳</span></h1>
+            <p className="muted">Welcome back, Vansh. Here’s what’s happening in your parking facility today.</p>
+          </div>
+          <p className="today-label"><Clock3 size={16} aria-hidden="true" /> Live facility overview</p>
+        </section>
+
+        {notice && (
+          <div className={`toast ${notice.error ? "toast-error" : "toast-success"}`} role={notice.error ? "alert" : "status"}>
+            {notice.error ? <X size={18} aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
+            <span>{notice.text}</span>
+            <button type="button" className="toast-dismiss" aria-label="Dismiss notification" onClick={() => setNotice(null)}><X size={18} /></button>
+          </div>
+        )}
+        {loadError && (
+          <div className="inline-error" role="alert">
+            <span>{loadError}</span>
+            <button className="button button-small" type="button" onClick={() => void refresh(true)}>Retry</button>
+          </div>
+        )}
+
+        <section className="stats-grid" aria-label="Facility statistics" aria-live="polite">
+          <StatCard label="Total spots" value={stats.total_spots} icon={<CarFront />} detail="Across 3 zones" tone="blue" />
+          <StatCard label="Available now" value={stats.free_spots} icon={<Check />} detail={`${stats.reserved_count} reserved`} tone="green" />
+          <StatCard label="Currently parked" value={stats.occupied_count} icon={<ArrowDownToLine />} detail={`of ${stats.total_spots} total spaces`} tone="purple" />
+          <StatCard label="Today's revenue" value={currency.format(stats.daily_revenue)} icon={<CircleDollarSign />} detail="From completed checkouts" tone="orange" />
+        </section>
+
+        <section className="workspace-grid" aria-label="Parking operations">
+          <section className="panel parking-panel" aria-labelledby="parking-title">
+            <div className="panel-heading">
+              <div>
+                <h2 id="parking-title">Parking overview</h2>
+                <p className="muted">Select an available spot for check-in or an occupied spot for checkout.</p>
+              </div>
+              <span className="live-chip"><span aria-hidden="true" className="live-dot" /> Live</span>
+            </div>
+            <div className="parking-toolbar">
+              <div className="spot-filter-row">
+                <label className="search-field" htmlFor="spot-search">
+                  <Search size={18} aria-hidden="true" />
+                  <input ref={searchRef} id="spot-search" type="search" aria-label="Search by slot number or vehicle number" placeholder="Search slot or vehicle number…" value={search} onChange={(event) => setSearch(event.target.value)} />
+                  <span className="shortcut-hint" aria-hidden="true">Alt S</span>
+                </label>
+                <div className="status-filters" role="group" aria-label="Filter parking slots by status">
+                  {(["all", "available", "occupied"] as const).map((status) => (
+                    <button
+                      key={status}
+                      className={`status-filter${spotStatusFilter === status ? " status-filter-active" : ""}`}
+                      type="button"
+                      aria-pressed={spotStatusFilter === status}
+                      onClick={() => setSpotStatusFilter(status)}
+                    >
+                      {status[0].toUpperCase() + status.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Legend />
+            </div>
+            <div className="zone-list" aria-live="polite" aria-busy={loading}>
+              {loading ? <div className="empty-state">Loading parking spots…</div> : zones.length === 0 ? (
+                <div className="empty-state">{search || spotStatusFilter !== "all" ? "No parking spots match your filters." : "No parking spots are available."}</div>
+              ) : zones.map((zone) => (
+                <section className="zone-section" key={zone} aria-labelledby={`zone-${zone.replaceAll(" ", "-")}`}>
+                  <div className="zone-heading">
+                    <h3 id={`zone-${zone.replaceAll(" ", "-")}`}>{zone}</h3>
+                    <span>{zoneSubtitle(zone)} <span aria-hidden="true">·</span> {filteredSpots.filter((spot) => spot.zone === zone).length} spots</span>
+                  </div>
+                  <div className="spot-grid">
+                    {filteredSpots.filter((spot) => spot.zone === zone).map((spot) => (
+                      <SpotButton key={spot.id} spot={spot} onSelect={handleSpot} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+            <p className="keyboard-note">Keyboard: Tab to navigate spots, Enter or Space to select.</p>
+          </section>
+
+          <aside className="side-column" aria-label="Parking actions">
+            <section className="panel checkout-panel" id="checkout-panel" aria-labelledby="checkout-title">
+              <div className="section-icon"><ArrowUpRight size={19} aria-hidden="true" /></div>
+              <h2 id="checkout-title">Vehicle checkout</h2>
+              <p className="muted">Search by ticket ID or license plate to calculate a final bill.</p>
+              <form onSubmit={(event) => void searchTickets(event)} className="checkout-form">
+                <label htmlFor="checkout-query">Ticket ID or license plate</label>
+                <div className="input-with-action">
+                  <input id="checkout-query" type="search" maxLength={36} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="e.g. AB-123 or ticket ID" autoComplete="off" />
+                  <button className="button button-primary search-submit" type="submit" disabled={busy} aria-label="Search active tickets"><Search size={18} aria-hidden="true" /></button>
+                </div>
+                <button className="button button-outline checkout-submit" type="submit" disabled={busy || ticketResults.length === 0}>
+                  {busy ? "Processing…" : "Find active ticket"}
+                </button>
+              </form>
+              {ticketResults.map((ticket) => (
+                <article className="ticket-result" key={ticket.id}>
+                  <div><strong>{ticket.license_plate}</strong><span>{vehicleLabels[ticket.vehicle_type]} · Spot {ticket.spot_id}</span></div>
+                  <button type="button" className="button button-primary" onClick={(event) => requestCheckout(ticket, event.currentTarget)} disabled={busy}>
+                    Check out <ArrowUpRight size={16} aria-hidden="true" />
+                  </button>
+                </article>
+              ))}
+              {receipt && <ReceiptCard receipt={receipt} />}
+            </section>
+
+            <section className="panel rate-panel" aria-labelledby="rates-title">
+              <h2 id="rates-title">Hourly rates</h2>
+              <Rate vehicle="Standard" amount="$4" icon={<CarFront />} />
+              <Rate vehicle="EV charging" amount="$7" icon={<PlugZap />} />
+              <Rate vehicle="Accessible" amount="$3" icon={<Accessibility />} />
+            </section>
+
+            <section className="help-card" aria-label="Keyboard shortcuts">
+              <div><strong>Quick tip</strong><ChevronDown size={16} aria-hidden="true" /></div>
+              <p>Use <kbd>Alt</kbd> + <kbd>N</kbd> for a new vehicle entry, <kbd>Alt</kbd> + <kbd>S</kbd> to search spots.</p>
+              <p><kbd>Alt</kbd> + <kbd>H</kbd> high contrast <span aria-hidden="true">·</span> <kbd>Alt</kbd> + <kbd>D</kbd> dark mode</p>
+            </section>
+          </aside>
+        </section>
+        <footer className="page-footer"><span>Parkwise operations console</span><span>Accessible by design</span></footer>
+      </main>
+
+      {modalOpen && (
+        <CheckinModal
+          spots={spots}
+          initialSpot={selectedSpot}
+          onClose={() => setModalOpen(false)}
+          onSuccess={async (ticket) => {
+            setModalOpen(false);
+            setNotice({ text: `${ticket.license_plate} checked in at ${ticket.spot_id}.`, error: false });
+            await refresh();
+          }}
+          onError={handleModalError}
+          onKeyDown={onModalKeyDown}
+        />
+      )}
+      {pendingCheckout && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPendingCheckout(null);
+          }}
+        >
+          <div
+            className="modal checkout-confirmation"
+            id="checkout-confirm-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="checkout-confirm-title"
+            aria-describedby="checkout-confirm-description"
+            onKeyDown={onModalKeyDown}
+          >
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">CONFIRM VEHICLE DEPARTURE</p>
+                <h2 id="checkout-confirm-title">Check out this vehicle?</h2>
+                <p id="checkout-confirm-description" className="muted">
+                  This will end the active parking session and make the spot available again.
+                  The final parking charge will be calculated.
+                </p>
+              </div>
+            </div>
+            <dl className="checkout-confirm-details">
+              <div><dt>Vehicle</dt><dd>{pendingCheckout.license_plate}</dd></div>
+              <div><dt>Parking spot</dt><dd>{pendingCheckout.spot_id}</dd></div>
+              <div><dt>Vehicle type</dt><dd>{vehicleLabels[pendingCheckout.vehicle_type]}</dd></div>
+            </dl>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="button button-outline"
+                data-initial-focus
+                onClick={() => setPendingCheckout(null)}
+              >
+                Keep vehicle parked
+              </button>
+              <button type="button" className="button button-danger" onClick={() => void confirmCheckout()}>
+                Confirm checkout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatCard({ label, value, icon, detail, tone }: { label: string; value: string | number; icon: ReactNode; detail: string; tone: string }) {
   return (
     <article className="stat-card">
@@ -66,6 +458,12 @@ function StatCard({ label, value, icon, detail, tone }: { label: string; value: 
   );
 }
 
+function zoneSubtitle(zone: string) {
+  if (zone === "Zone A") return "Standard";
+  if (zone === "Zone B") return "EV charging";
+  return "Accessible";
+}
+
 function Legend() {
   return (
     <div className="legend" aria-label="Spot status legend">
@@ -74,17 +472,6 @@ function Legend() {
       <span><i className="legend-dot reserved" aria-hidden="true" />Reserved</span>
     </div>
   );
-}
-
-function Rate({ vehicle, amount, icon }: { vehicle: string; amount: string; icon: ReactNode }) {
-  return <div className="rate-row"><span className="rate-icon" aria-hidden="true">{icon}</span><span>{vehicle}</span><strong>{amount}<small>/hr</small></strong></div>;
-}
-
-
-function zoneSubtitle(zone: string) {
-  if (zone === "Zone A") return "Standard";
-  if (zone === "Zone B") return "EV charging";
-  return "Accessible";
 }
 
 function SpotButton({ spot, onSelect }: { spot: Spot; onSelect: (spot: Spot) => void }) {
@@ -106,6 +493,9 @@ function SpotButton({ spot, onSelect }: { spot: Spot; onSelect: (spot: Spot) => 
   );
 }
 
+function Rate({ vehicle, amount, icon }: { vehicle: string; amount: string; icon: ReactNode }) {
+  return <div className="rate-row"><span className="rate-icon" aria-hidden="true">{icon}</span><span>{vehicle}</span><strong>{amount}<small>/hr</small></strong></div>;
+}
 
 function ReceiptCard({ receipt }: { receipt: Receipt }) {
   const { ticket } = receipt;
@@ -122,7 +512,6 @@ function ReceiptCard({ receipt }: { receipt: Receipt }) {
     </article>
   );
 }
-
 
 function CheckinModal({
   spots,
@@ -146,20 +535,6 @@ function CheckinModal({
   const [phoneNumber, setPhoneNumber] = useState("");
   const [spotId, setSpotId] = useState(initialSpot);
   const [busy, setBusy] = useState(false);
-  const [pendingCheckout, setPendingCheckout] = useState<Ticket | null>(null);
-  const modalTriggerRef = useRef<HTMLElement | null>(null);
-
-  function requestCheckout(ticket: Ticket, trigger: HTMLButtonElement) {
-    modalTriggerRef.current = trigger;
-    setPendingCheckout(ticket);
-  }
-
-  async function confirmCheckout() {
-    if (!pendingCheckout) return;
-    const ticketId = pendingCheckout.id;
-    setPendingCheckout(null);
-    await completeCheckout(ticketId);
-  }
   const [recommendedSpot, setRecommendedSpot] = useState("");
   const plateRef = useRef<HTMLInputElement>(null);
   const availableSpots = spots.filter(
@@ -249,267 +624,6 @@ function CheckinModal({
           </div>
         </form>
       </div>
-    </div>
-  );
-}
-
-
-function AppContent() {
-  const { fontScale, highContrast, darkMode, changeFontScale, toggleHighContrast, toggleDarkMode } =
-    useAccessibility();
-  const [spots, setSpots] = useState<Spot[]>([]);
-  const [stats, setStats] = useState<Stats>(emptyStats);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedSpot, setSelectedSpot] = useState("");
-  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
-  const [query, setQuery] = useState("");
-  const [ticketResults, setTicketResults] = useState<Ticket[]>([]);
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [pendingCheckout, setPendingCheckout] = useState<Ticket | null>(null);
-  const modalTriggerRef = useRef<HTMLElement | null>(null);
-
-  function requestCheckout(ticket: Ticket, trigger: HTMLButtonElement) {
-    modalTriggerRef.current = trigger;
-    setPendingCheckout(ticket);
-  }
-
-  async function confirmCheckout() {
-    if (!pendingCheckout) return;
-    const ticketId = pendingCheckout.id;
-    setPendingCheckout(null);
-    await completeCheckout(ticketId);
-  }
-
-  async function searchTickets(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const cleanQuery = query.trim();
-    if (!cleanQuery) return;
-    setBusy(true);
-    setReceipt(null);
-    try {
-      const results = await api.searchTickets(cleanQuery);
-      setTicketResults(results);
-      if (!results.length) setNotice({ text: "No active parking tickets matched that search.", error: true });
-    } catch (error) {
-      setNotice({ text: error instanceof Error ? error.message : "Ticket search failed.", error: true });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function completeCheckout(ticketId: string) {
-    setBusy(true);
-    try {
-      const result = await api.checkout(ticketId);
-      setReceipt(result);
-      setTicketResults([]);
-      setQuery("");
-      setNotice({ text: `Checkout complete. ${currency.format(result.amount_paid)} collected.`, error: false });
-      await refresh();
-    } catch (error) {
-      setNotice({ text: error instanceof Error ? error.message : "Checkout failed.", error: true });
-      await refresh();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const refresh = useCallback(async (showLoading = false) => {
-    if (showLoading) setLoading(true);
-    setLoadError("");
-    try {
-      const [nextSpots, nextStats] = await Promise.all([api.spots(), api.stats()]);
-      setSpots(nextSpots);
-      setStats(nextStats);
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Unable to load parking data.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh(true);
-  }, [refresh]);
-
-  const openCheckin = useCallback((spotId = "") => {
-    setSelectedSpot(spotId);
-    setModalOpen(true);
-  }, []);
-
-  const zones = useMemo(() => [...new Set(spots.map((spot) => spot.zone))], [spots]);
-
-  function handleSpot(spot: Spot) {
-    if (spot.status === "available") openCheckin(spot.id);
-  }
-
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#" aria-label="Parkwise dashboard">
-          <span className="brand-mark" aria-hidden="true"><CarFront size={24} /></span>
-          <span>parkwise<span className="brand-period">.</span></span>
-        </a>
-        <nav aria-label="Accessibility and main actions" className="topbar-controls">
-          <div className="font-controls" aria-label="Text size controls">
-            <button className="icon-button" type="button" aria-label="Decrease text size" title="Decrease text size" onClick={() => changeFontScale(-1)}>A−</button>
-            <span className="font-size-label" aria-live="polite">{["Small", "Medium", "Large", "Extra large"][fontScale]}</span>
-            <button className="icon-button" type="button" aria-label="Increase text size" title="Increase text size" onClick={() => changeFontScale(1)}>A+</button>
-          </div>
-          <button className="icon-button labeled-control" type="button" aria-label="Toggle high contrast mode" aria-pressed={highContrast} onClick={toggleHighContrast}>
-            <Accessibility size={18} aria-hidden="true" /><span>High contrast</span>
-          </button>
-          <button className="icon-button labeled-control" type="button" aria-label={`Toggle ${darkMode ? "light" : "dark"} mode`} aria-pressed={darkMode} onClick={toggleDarkMode}>
-            <SunMoon size={18} aria-hidden="true" /><span>{darkMode ? "Dark mode" : "Light mode"}</span>
-          </button>
-          <button className="button button-primary new-entry" type="button" aria-haspopup="dialog" aria-expanded={modalOpen} onClick={() => setModalOpen(true)}>
-            <Plus size={18} aria-hidden="true" /><span>New entry</span>
-          </button>
-        </nav>
-      </header>
-
-      <main className="page-content">
-        <section className="page-heading" aria-labelledby="page-title">
-          <div>
-            <p className="eyebrow">PARKING OPERATIONS</p>
-            <h1 id="page-title">Good day, Vansh <span aria-hidden="true">✳</span></h1>
-            <p className="muted">Welcome back, Vansh. Here’s what’s happening in your parking facility today.</p>
-          </div>
-          <p className="today-label"><Clock3 size={16} aria-hidden="true" /> Live facility overview</p>
-        </section>
-
-        <section className="stats-grid" aria-label="Facility statistics" aria-live="polite">
-          <StatCard label="Total spots" value={stats.total_spots} icon={<CarFront />} detail="Across 3 zones" tone="blue" />
-          <StatCard label="Available now" value={stats.free_spots} icon={<Check />} detail={`${stats.reserved_count} reserved`} tone="green" />
-          <StatCard label="Currently parked" value={stats.occupied_count} icon={<ArrowDownToLine />} detail={`of ${stats.total_spots} total spaces`} tone="purple" />
-          <StatCard label="Today's revenue" value={currency.format(stats.daily_revenue)} icon={<CircleDollarSign />} detail="From completed checkouts" tone="orange" />
-        </section>
-
-        <section className="workspace-grid" aria-label="Parking operations">
-          <section className="panel parking-panel" aria-labelledby="parking-title">
-            <div className="panel-heading">
-              <div>
-                <h2 id="parking-title">Parking overview</h2>
-                <p className="muted">Select an available spot for check-in or an occupied spot for checkout.</p>
-              </div>
-              <span className="live-chip"><span aria-hidden="true" className="live-dot" /> Live</span>
-            </div>
-            <div className="zone-list" aria-live="polite" aria-busy={loading}>
-              {loading ? <div className="empty-state">Loading parking spots…</div> : zones.map((zone) => (
-                <section className="zone-section" key={zone} aria-labelledby={`zone-${zone.replaceAll(" ", "-")}`}>
-                  <div className="zone-heading">
-                    <h3 id={`zone-${zone.replaceAll(" ", "-")}`}>{zone}</h3>
-                    <span>{zoneSubtitle(zone)} · {spots.filter((spot) => spot.zone === zone).length} spots</span>
-                  </div>
-                  <div className="spot-grid">
-                    {spots.filter((spot) => spot.zone === zone).map((spot) => (
-                      <SpotButton key={spot.id} spot={spot} onSelect={handleSpot} />
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-          </section>
-
-          <aside className="side-column" aria-label="Parking actions">
-            <section className="panel checkout-panel" id="checkout-panel" aria-labelledby="checkout-title">
-              <div className="section-icon"><ArrowUpRight size={19} aria-hidden="true} /></div>
-              <h2 id="checkout-title">Vehicle checkout</h2>
-              <p className="muted">Search by ticket ID or license plate to calculate a final bill.</p>
-              <form onSubmit={(event) => void searchTickets(event)} className="checkout-form">
-                <label htmlFor="checkout-query">Ticket ID or license plate</label>
-                <div className="input-with-action">
-                  <input id="checkout-query" type="search" maxLength={36} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="e.g. AB-123 or ticket ID" autoComplete="off" />
-                  <button className="button button-primary search-submit" type="submit" disabled={busy} aria-label="Search active tickets"><Search size={18} aria-hidden="true} /></button>
-                </div>
-                <button className="button button-outline checkout-submit" type="submit" disabled={busy || ticketResults.length === 0}>
-                  {busy ? "Processing…" : "Find active ticket"}
-                </button>
-              </form>
-              {ticketResults.map((ticket) => (
-                <article className="ticket-result" key={ticket.id}>
-                  <div><strong>{ticket.license_plate}</strong><span>{vehicleLabels[ticket.vehicle_type]} · Spot {ticket.spot_id}</span></div>
-                  <button type="button" className="button button-primary" onClick={(event) => requestCheckout(ticket, event.currentTarget)} disabled={busy}>
-                    Check out <ArrowUpRight size={16} aria-hidden="true} />
-                  </button>
-                </article>
-              ))}
-              {receipt && <ReceiptCard receipt={receipt} />}
-            </section>
-
-            <section className="panel rate-panel" aria-labelledby="rates-title">
-              <h2 id="rates-title">Hourly rates</h2>
-              <Rate vehicle="Standard" amount="$4" icon={<CarFront />} />
-              <Rate vehicle="EV charging" amount="$7" icon={<PlugZap />} />
-              <Rate vehicle="Accessible" amount="$3" icon={<Accessibility />} />
-            </section>
-          </aside>
-        </section>
-      </main>
-
-      {pendingCheckout && (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setPendingCheckout(null);
-          }}
-        >
-          <div
-            className="modal checkout-confirmation"
-            id="checkout-confirm-dialog"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="checkout-confirm-title"
-            aria-describedby="checkout-confirm-description"
-          >
-            <div className="modal-heading">
-              <div>
-                <p className="eyebrow">CONFIRM VEHICLE DEPARTURE</p>
-                <h2 id="checkout-confirm-title">Check out this vehicle?</h2>
-                <p id="checkout-confirm-description" className="muted">
-                  This will end the active parking session and make the spot available again.
-                  The final parking charge will be calculated.
-                </p>
-              </div>
-            </div>
-            <dl className="checkout-confirm-details">
-              <div><dt>Vehicle</dt><dd>{pendingCheckout.license_plate}</dd></div>
-              <div><dt>Parking spot</dt><dd>{pendingCheckout.spot_id}</dd></div>
-              <div><dt>Vehicle type</dt><dd>{vehicleLabels[pendingCheckout.vehicle_type]}</dd></div>
-            </dl>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="button button-outline"
-                data-initial-focus
-                onClick={() => setPendingCheckout(null)}
-              >
-                Keep vehicle parked
-              </button>
-              <button type="button" className="button button-danger" onClick={() => void confirmCheckout()}>
-                Confirm checkout
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {modalOpen && (
-        <CheckinModal
-          spots={spots}
-          initialSpot={selectedSpot}
-          onClose={() => setModalOpen(false)}
-          onSuccess={async (ticket) => {
-            setModalOpen(false);
-            setNotice({ text: `${ticket.license_plate} checked in at ${ticket.spot_id}.`, error: false });
-            await refresh();
-          }}
-          onError={(msg) => setNotice({ text: msg, error: true })}
-          onKeyDown={() => {}}
-        />
-      )}
     </div>
   );
 }
