@@ -123,6 +123,122 @@ function ReceiptCard({ receipt }: { receipt: Receipt }) {
   );
 }
 
+
+function CheckinModal({
+  spots,
+  initialSpot,
+  onClose,
+  onSuccess,
+  onError,
+  onKeyDown,
+}: {
+  spots: Spot[];
+  initialSpot: string;
+  onClose: () => void;
+  onSuccess: (ticket: Ticket) => Promise<void>;
+  onError: (message: string) => void;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
+}) {
+  const [vehicleType, setVehicleType] = useState<VehicleType>(
+    () => spots.find((spot) => spot.id === initialSpot)?.spot_type ?? "standard",
+  );
+  const [licensePlate, setLicensePlate] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [spotId, setSpotId] = useState(initialSpot);
+  const [busy, setBusy] = useState(false);
+  const [recommendedSpot, setRecommendedSpot] = useState("");
+  const plateRef = useRef<HTMLInputElement>(null);
+  const availableSpots = spots.filter(
+    (spot) => spot.status === "available" && spot.spot_type === vehicleType,
+  );
+
+  useEffect(() => {
+    let current = true;
+    void api.recommendation(vehicleType).then(
+      (recommendation) => {
+        if (!current) return;
+        setRecommendedSpot(recommendation.spot_id);
+        setSpotId((selected) => {
+          const initialIsCompatible = spots.some(
+            (spot) =>
+              spot.id === initialSpot &&
+              spot.status === "available" &&
+              spot.spot_type === vehicleType,
+          );
+          if (initialIsCompatible && selected === initialSpot) return selected;
+          return recommendation.spot_id;
+        });
+      },
+      (error: unknown) => {
+        if (current) {
+          setRecommendedSpot("");
+          setSpotId("");
+          onError(error instanceof Error ? error.message : "No compatible spot could be recommended.");
+        }
+      },
+    );
+    return () => { current = false; };
+  }, [vehicleType, initialSpot, onError, spots]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const ticket = await api.checkIn({
+        license_plate: licensePlate.trim().toUpperCase(),
+        vehicle_type: vehicleType,
+        phone_number: phoneNumber.trim(),
+        ...(spotId ? { spot_id: spotId } : {}),
+      });
+      await onSuccess(ticket);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Vehicle check-in failed.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div
+        className="modal"
+        id="checkin-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="checkin-title"
+        aria-describedby="checkin-description"
+        onKeyDown={onKeyDown}
+      >
+        <div className="modal-heading">
+          <div><p className="eyebrow">VEHICLE ARRIVAL</p><h2 id="checkin-title">New vehicle entry</h2><p id="checkin-description" className="muted">Enter vehicle details to assign an available spot.</p></div>
+          <button className="icon-button close-button" type="button" aria-label="Close check-in dialog" onClick={onClose}><X size={20} /></button>
+        </div>
+        <form className="modal-form" onSubmit={(event) => void submit(event)}>
+          <label htmlFor="license-plate">License plate</label>
+          <input ref={plateRef} id="license-plate" name="license_plate" required minLength={4} maxLength={10} pattern="[A-Za-z0-9]{2,4}[\x20\x2d]?[A-Za-z0-9]{2,5}" title="Use 4–10 letters or numbers, optionally separated by a hyphen." placeholder="e.g. AB-123" autoComplete="off" value={licensePlate} onChange={(event) => setLicensePlate(event.target.value.toUpperCase())} />
+          <label htmlFor="vehicle-type">Vehicle type</label>
+          <select id="vehicle-type" name="vehicle_type" value={vehicleType} onChange={(event) => { setVehicleType(event.target.value as VehicleType); setSpotId(""); }}>
+            <option value="standard">Standard</option><option value="ev">EV charging</option><option value="accessible">Accessible</option>
+          </select>
+          <label htmlFor="phone-number">Phone number</label>
+          <input id="phone-number" name="phone_number" type="tel" required minLength={9} maxLength={20} pattern="\+?[0-9][0-9\x20\x28\x29\x2d]{7,18}[0-9]" title="Enter a phone number with 9–20 digits and optional spaces, parentheses, hyphens, or leading plus." placeholder="+1 555 123 4567" autoComplete="tel" value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} />
+          <label htmlFor="assigned-spot">Assigned spot</label>
+          <select id="assigned-spot" name="spot_id" value={spotId} onChange={(event) => setSpotId(event.target.value)}>
+            <option value="">Automatically assign the recommended spot</option>
+            {availableSpots.map((spot) => <option value={spot.id} key={spot.id}>{spot.id}{spot.id === recommendedSpot ? " — Recommended" : ""}</option>)}
+          </select>
+          <p className="field-hint">{recommendedSpot ? `Closest compatible spot: ${recommendedSpot}.` : "No compatible spot is currently available."}</p>
+          <div className="modal-actions">
+            <button type="button" className="button button-outline" onClick={onClose}>Cancel</button>
+            <button type="submit" className="button button-primary" disabled={busy || (!recommendedSpot && availableSpots.length === 0)}>
+              {busy ? "Checking in…" : <><Plus size={17} aria-hidden="true" /> Check in vehicle</>}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard() {
   return (
     <ErrorBoundary>
