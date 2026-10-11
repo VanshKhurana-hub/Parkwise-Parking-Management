@@ -106,6 +106,23 @@ function SpotButton({ spot, onSelect }: { spot: Spot; onSelect: (spot: Spot) => 
   );
 }
 
+
+function ReceiptCard({ receipt }: { receipt: Receipt }) {
+  const { ticket } = receipt;
+  return (
+    <article className="receipt" aria-labelledby="receipt-title">
+      <div className="receipt-head"><h3 id="receipt-title"><Check size={18} aria-hidden="true" /> Checkout receipt</h3><button className="button button-small no-print" type="button" onClick={() => window.print()}>Print receipt</button></div>
+      <dl>
+        <div><dt>Ticket</dt><dd>{ticket.id.slice(0, 8).toUpperCase()}</dd></div>
+        <div><dt>License plate</dt><dd>{ticket.license_plate}</dd></div>
+        <div><dt>Parking spot</dt><dd>{ticket.spot_id}</dd></div>
+        <div><dt>Duration</dt><dd>{Math.floor(receipt.duration_minutes / 60)}h {receipt.duration_minutes % 60}m</dd></div>
+        <div className="receipt-total"><dt>Total paid</dt><dd>{currency.format(receipt.amount_paid)}</dd></div>
+      </dl>
+    </article>
+  );
+}
+
 function Dashboard() {
   return (
     <ErrorBoundary>
