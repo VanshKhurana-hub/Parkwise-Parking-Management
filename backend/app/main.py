@@ -136,3 +136,24 @@ def create_checkout(
             duration_minutes=duration_minutes,
             amount_paid=float(amount),
         )
+
+
+@app.get("/api/tickets/search", response_model=list[TicketResponse])
+def search_tickets(
+    q: str = Query(min_length=1, max_length=36),
+    session: Session = Depends(get_session),
+) -> list[TicketResponse]:
+    query = q.strip()
+    tickets = session.scalars(
+        select(ParkingTicket)
+        .where(
+            (ParkingTicket.checked_out_at.is_(None))
+            & (
+                ParkingTicket.license_plate.contains(query.upper())
+                | ParkingTicket.id.contains(query)
+            )
+        )
+        .order_by(ParkingTicket.checked_in_at.desc())
+        .limit(10)
+    ).all()
+    return [ticket_response(ticket) for ticket in tickets]
