@@ -157,3 +157,34 @@ def search_tickets(
         .limit(10)
     ).all()
     return [ticket_response(ticket) for ticket in tickets]
+
+
+@app.get("/api/stats", response_model=StatsResponse)
+def get_stats(session: Session = Depends(get_session)) -> StatsResponse:
+    total = int(session.scalar(select(func.count()).select_from(ParkingSpot)) or 0)
+    occupied = int(
+        session.scalar(
+            select(func.count()).select_from(ParkingSpot).where(ParkingSpot.status == "occupied")
+        )
+        or 0
+    )
+    reserved = int(
+        session.scalar(
+            select(func.count()).select_from(ParkingSpot).where(ParkingSpot.status == "reserved")
+        )
+        or 0
+    )
+    today = now_utc().date()
+    revenue = session.scalars(
+        select(ParkingTicket.amount_paid).where(
+            ParkingTicket.checked_out_at.is_not(None),
+            func.date(ParkingTicket.checked_out_at) == today.isoformat(),
+        )
+    ).all()
+    return StatsResponse(
+        total_spots=total,
+        free_spots=total - occupied - reserved,
+        occupied_count=occupied,
+        reserved_count=reserved,
+        daily_revenue=float(sum((value or Decimal("0.00") for value in revenue), Decimal("0.00"))),
+    )
