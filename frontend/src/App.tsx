@@ -243,8 +243,42 @@ function CheckinModal({
 function AppContent() {
   const { fontScale, highContrast, darkMode, changeFontScale, toggleHighContrast, toggleDarkMode } =
     useAccessibility();
+  const [spots, setSpots] = useState<Spot[]>([]);
   const [stats, setStats] = useState<Stats>(emptyStats);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [selectedSpot, setSelectedSpot] = useState("");
+  const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+
+  const refresh = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
+    setLoadError("");
+    try {
+      const [nextSpots, nextStats] = await Promise.all([api.spots(), api.stats()]);
+      setSpots(nextSpots);
+      setStats(nextStats);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load parking data.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh(true);
+  }, [refresh]);
+
+  const openCheckin = useCallback((spotId = "") => {
+    setSelectedSpot(spotId);
+    setModalOpen(true);
+  }, []);
+
+  const zones = useMemo(() => [...new Set(spots.map((spot) => spot.zone))], [spots]);
+
+  function handleSpot(spot: Spot) {
+    if (spot.status === "available") openCheckin(spot.id);
+  }
 
   return (
     <div className="app-shell">
@@ -287,7 +321,49 @@ function AppContent() {
           <StatCard label="Currently parked" value={stats.occupied_count} icon={<ArrowDownToLine />} detail={`of ${stats.total_spots} total spaces`} tone="purple" />
           <StatCard label="Today's revenue" value={currency.format(stats.daily_revenue)} icon={<CircleDollarSign />} detail="From completed checkouts" tone="orange" />
         </section>
+
+        <section className="workspace-grid" aria-label="Parking operations">
+          <section className="panel parking-panel" aria-labelledby="parking-title">
+            <div className="panel-heading">
+              <div>
+                <h2 id="parking-title">Parking overview</h2>
+                <p className="muted">Select an available spot for check-in or an occupied spot for checkout.</p>
+              </div>
+              <span className="live-chip"><span aria-hidden="true" className="live-dot" /> Live</span>
+            </div>
+            <div className="zone-list" aria-live="polite" aria-busy={loading}>
+              {loading ? <div className="empty-state">Loading parking spots…</div> : zones.map((zone) => (
+                <section className="zone-section" key={zone} aria-labelledby={`zone-${zone.replaceAll(" ", "-")}`}>
+                  <div className="zone-heading">
+                    <h3 id={`zone-${zone.replaceAll(" ", "-")}`}>{zone}</h3>
+                    <span>{zoneSubtitle(zone)} · {spots.filter((spot) => spot.zone === zone).length} spots</span>
+                  </div>
+                  <div className="spot-grid">
+                    {spots.filter((spot) => spot.zone === zone).map((spot) => (
+                      <SpotButton key={spot.id} spot={spot} onSelect={handleSpot} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </section>
+        </section>
       </main>
+
+      {modalOpen && (
+        <CheckinModal
+          spots={spots}
+          initialSpot={selectedSpot}
+          onClose={() => setModalOpen(false)}
+          onSuccess={async (ticket) => {
+            setModalOpen(false);
+            setNotice({ text: `${ticket.license_plate} checked in at ${ticket.spot_id}.`, error: false });
+            await refresh();
+          }}
+          onError={(msg) => setNotice({ text: msg, error: true })}
+          onKeyDown={() => {}}
+        />
+      )}
     </div>
   );
 }
