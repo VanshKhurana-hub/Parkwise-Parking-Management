@@ -250,6 +250,44 @@ function AppContent() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedSpot, setSelectedSpot] = useState("");
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const [query, setQuery] = useState("");
+  const [ticketResults, setTicketResults] = useState<Ticket[]>([]);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function searchTickets(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanQuery = query.trim();
+    if (!cleanQuery) return;
+    setBusy(true);
+    setReceipt(null);
+    try {
+      const results = await api.searchTickets(cleanQuery);
+      setTicketResults(results);
+      if (!results.length) setNotice({ text: "No active parking tickets matched that search.", error: true });
+    } catch (error) {
+      setNotice({ text: error instanceof Error ? error.message : "Ticket search failed.", error: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function completeCheckout(ticketId: string) {
+    setBusy(true);
+    try {
+      const result = await api.checkout(ticketId);
+      setReceipt(result);
+      setTicketResults([]);
+      setQuery("");
+      setNotice({ text: `Checkout complete. ${currency.format(result.amount_paid)} collected.`, error: false });
+      await refresh();
+    } catch (error) {
+      setNotice({ text: error instanceof Error ? error.message : "Checkout failed.", error: true });
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const refresh = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -347,6 +385,40 @@ function AppContent() {
               ))}
             </div>
           </section>
+
+          <aside className="side-column" aria-label="Parking actions">
+            <section className="panel checkout-panel" id="checkout-panel" aria-labelledby="checkout-title">
+              <div className="section-icon"><ArrowUpRight size={19} aria-hidden="true} /></div>
+              <h2 id="checkout-title">Vehicle checkout</h2>
+              <p className="muted">Search by ticket ID or license plate to calculate a final bill.</p>
+              <form onSubmit={(event) => void searchTickets(event)} className="checkout-form">
+                <label htmlFor="checkout-query">Ticket ID or license plate</label>
+                <div className="input-with-action">
+                  <input id="checkout-query" type="search" maxLength={36} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="e.g. AB-123 or ticket ID" autoComplete="off" />
+                  <button className="button button-primary search-submit" type="submit" disabled={busy} aria-label="Search active tickets"><Search size={18} aria-hidden="true} /></button>
+                </div>
+                <button className="button button-outline checkout-submit" type="submit" disabled={busy || ticketResults.length === 0}>
+                  {busy ? "Processing…" : "Find active ticket"}
+                </button>
+              </form>
+              {ticketResults.map((ticket) => (
+                <article className="ticket-result" key={ticket.id}>
+                  <div><strong>{ticket.license_plate}</strong><span>{vehicleLabels[ticket.vehicle_type]} · Spot {ticket.spot_id}</span></div>
+                  <button type="button" className="button button-primary" onClick={() => completeCheckout(ticket.id)} disabled={busy}>
+                    Check out <ArrowUpRight size={16} aria-hidden="true} />
+                  </button>
+                </article>
+              ))}
+              {receipt && <ReceiptCard receipt={receipt} />}
+            </section>
+
+            <section className="panel rate-panel" aria-labelledby="rates-title">
+              <h2 id="rates-title">Hourly rates</h2>
+              <Rate vehicle="Standard" amount="$4" icon={<CarFront />} />
+              <Rate vehicle="EV charging" amount="$7" icon={<PlugZap />} />
+              <Rate vehicle="Accessible" amount="$3" icon={<Accessibility />} />
+            </section>
+          </aside>
         </section>
       </main>
 
