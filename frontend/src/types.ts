@@ -1,5 +1,26 @@
 export type VehicleType = "standard" | "ev" | "accessible";
 export type SpotStatus = "available" | "occupied" | "reserved";
+export type UserRole = "admin" | "attendant" | "guest";
+
+export interface AuthUser {
+  username: string;
+  role: UserRole;
+  full_name: string;
+}
+
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+}
+
+export interface CreateSpotInput {
+  id: string;
+  zone: string;
+  spot_type: VehicleType;
+  row: number;
+  column: number;
+}
 
 export interface Spot {
   id: string;

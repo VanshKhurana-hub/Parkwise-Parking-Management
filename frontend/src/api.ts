@@ -1,13 +1,47 @@
-import type { Receipt, Spot, Stats, Ticket, VehicleType } from "./types";
+import type {
+  AuthUser,
+  CreateSpotInput,
+  LoginResponse,
+  Receipt,
+  Spot,
+  Stats,
+  Ticket,
+  VehicleType,
+} from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "";
+const TOKEN_KEY = "parkwise-auth-token";
+
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Gracefully handle storage disabled
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(init?.headers as Record<string, string>),
+  };
+
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...init?.headers },
+      headers,
     });
   } catch {
     throw new Error("Could not connect to the parking service. Check that the API is running.");
@@ -27,10 +61,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Auth endpoints
+  login: (credentials: { username: string; password: string }) =>
+    request<LoginResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify(credentials),
+    }),
+  me: () => request<AuthUser>("/api/auth/me"),
+
+  // Parking spots endpoints
   spots: () => request<Spot[]>("/api/spots"),
-  stats: () => request<Stats>("/api/stats"),
+  createSpot: (spot: CreateSpotInput) =>
+    request<Spot>("/api/spots", {
+      method: "POST",
+      body: JSON.stringify(spot),
+    }),
   recommendation: (vehicleType: VehicleType) =>
     request<{ spot_id: string }>(`/api/spots/recommendation?vehicle_type=${vehicleType}`),
+
+  // Check-in and checkout endpoints
   checkIn: (input: {
     license_plate: string;
     vehicle_type: VehicleType;
@@ -44,4 +93,5 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ticket_id: ticketId }),
     }),
+  stats: () => request<Stats>("/api/stats"),
 };

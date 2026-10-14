@@ -25,6 +25,35 @@ Phone = Annotated[
 ]
 
 
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
+    password: Annotated[str, StringConstraints(min_length=1, max_length=100)]
+
+
+class UserResponse(BaseModel):
+    username: str
+    role: str
+    full_name: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
+class CreateSpotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=2, max_length=12)]
+    zone: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=20)]
+    spot_type: VehicleType
+    row: Annotated[int, Field(ge=1, le=100)]
+    column: Annotated[int, Field(ge=1, le=100)]
+
+
 class CheckInRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

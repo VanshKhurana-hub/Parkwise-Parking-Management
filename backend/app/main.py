@@ -1,21 +1,33 @@
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from threading import RLock
+from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .auth import (
+    create_access_token,
+    get_current_user,
+    get_password_hash,
+    require_role,
+    verify_password,
+)
 from .database import Base, SessionLocal, engine, get_session
-from .models import ParkingSpot, ParkingTicket
+from .models import ParkingSpot, ParkingTicket, User
 from .schemas import (
     CheckInRequest,
     CheckoutRequest,
     CheckoutResponse,
+    CreateSpotRequest,
+    LoginRequest,
     SpotResponse,
     StatsResponse,
     TicketResponse,
+    TokenResponse,
+    UserResponse,
 )
 from .services import check_in, checkout, now_utc, recommend_spot
 
@@ -47,10 +59,35 @@ def seed_spots() -> None:
         session.commit()
 
 
+def seed_users() -> None:
+    with SessionLocal() as session:
+        if session.scalar(select(func.count()).select_from(User)):
+            return
+        default_users = [
+            User(
+                id=str(uuid4()),
+                username="admin",
+                hashed_password=get_password_hash("admin123"),
+                role="admin",
+                full_name="System Admin",
+            ),
+            User(
+                id=str(uuid4()),
+                username="attendant",
+                hashed_password=get_password_hash("attendant123"),
+                role="attendant",
+                full_name="Parking Attendant",
+            ),
+        ]
+        session.add_all(default_users)
+        session.commit()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     seed_spots()
+    seed_users()
     yield
 
 
@@ -59,8 +96,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -77,8 +114,44 @@ def ticket_response(ticket: ParkingTicket) -> TicketResponse:
     )
 
 
+# --- Authentication Endpoints ---
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+def login(request: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
+    user = session.scalar(select(User).where(User.username == request.username))
+    if not user or not verify_password(request.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(data={"sub": user.username, "role": user.role})
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user=UserResponse(
+            username=user.username,
+            role=user.role,
+            full_name=user.full_name,
+        ),
+    )
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+def me(current_user: User = Depends(get_current_user)) -> UserResponse:
+    return UserResponse(
+        username=current_user.username,
+        role=current_user.role,
+        full_name=current_user.full_name,
+    )
+
+
+# --- Spots Endpoints ---
+
 @app.get("/api/spots", response_model=list[SpotResponse])
 def list_spots(session: Session = Depends(get_session)) -> list[SpotResponse]:
+    """Public endpoint: Allows drivers and visitors to view parking spot availability."""
     spots = session.scalars(select(ParkingSpot).order_by(ParkingSpot.zone, ParkingSpot.id)).all()
     active_by_spot = {
         ticket.spot_id: ticket
@@ -103,6 +176,42 @@ def list_spots(session: Session = Depends(get_session)) -> list[SpotResponse]:
     ]
 
 
+@app.post("/api/spots", response_model=SpotResponse, status_code=status.HTTP_201_CREATED)
+def create_spot(
+    request: CreateSpotRequest,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_role("admin")),
+) -> SpotResponse:
+    """Protected endpoint: Only Admin can create new parking spots."""
+    with write_lock:
+        existing = session.get(ParkingSpot, request.id)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Parking spot {request.id} already exists.",
+            )
+
+        spot = ParkingSpot(
+            id=request.id,
+            zone=request.zone,
+            spot_type=request.spot_type,
+            row=request.row,
+            column=request.column,
+            status="available",
+        )
+        session.add(spot)
+        session.commit()
+        session.refresh(spot)
+        return SpotResponse(
+            id=spot.id,
+            zone=spot.zone,
+            spot_type=spot.spot_type,
+            row=spot.row,
+            column=spot.column,
+            status=spot.status,
+        )
+
+
 @app.get("/api/spots/recommendation")
 def get_recommendation(
     vehicle_type: str = Query(pattern="^(standard|ev|accessible)$"),
@@ -110,6 +219,8 @@ def get_recommendation(
 ) -> dict[str, str]:
     return {"spot_id": recommend_spot(session, vehicle_type).id}
 
+
+# --- Check-in and Checkout Endpoints ---
 
 @app.post("/api/checkin", response_model=TicketResponse, status_code=201)
 def create_checkin(
@@ -124,7 +235,9 @@ def create_checkin(
 def create_checkout(
     request: CheckoutRequest,
     session: Session = Depends(get_session),
+    _: User = Depends(require_role("admin", "attendant")),
 ) -> CheckoutResponse:
+    """Protected endpoint: Only Attendants or Admins can process vehicle checkout."""
     with write_lock:
         ticket, duration_minutes, amount = checkout(
             session,

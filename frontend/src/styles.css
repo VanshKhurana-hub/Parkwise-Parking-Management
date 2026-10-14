@@ -237,6 +237,42 @@ kbd { display: inline-block; border: 1px solid #bdcbc2; border-radius: 4px; back
   .modal-actions { flex-direction: column-reverse; }
   .modal-actions .button { width: 100%; }
 }
+
+/* --- Auth & RBAC Styles --- */
+.auth-status-chip { display: inline-flex; align-items: center; gap: 8px; background: var(--surface-muted); border: 1px solid var(--border); border-radius: 999px; padding: 4px 6px 4px 10px; }
+.user-display-name { font-size: .82rem; font-weight: 650; color: var(--text); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-badge { display: inline-flex; align-items: center; gap: 4px; font-size: .68rem; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; }
+.role-badge.role-admin { background: #fbf1e3; color: #9b6428; border: 1px solid #ebd3b6; }
+.role-badge.role-attendant { background: #eaf3f0; color: #216b48; border: 1px solid #c2e2d3; }
+.role-badge.role-guest { background: #eaf2f9; color: #346d99; border: 1px solid #c8dcf0; }
+.logout-btn { width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; border-radius: 50%; color: var(--muted); }
+.logout-btn:hover { color: var(--danger); background: #fdf2f2; }
+.signin-btn { display: inline-flex; align-items: center; gap: 8px; }
+.add-spot-nav-btn { display: inline-flex; align-items: center; gap: 6px; }
+.panel-heading-actions { display: flex; align-items: center; gap: 8px; }
+.auth-required-hint { color: #a52a2a; font-weight: 650; font-size: .8rem; }
+.login-error { display: flex; align-items: center; gap: 8px; background: #fdf2f2; border: 1px solid #f5c2c2; color: #a52a2a; border-radius: 8px; padding: 10px 14px; font-size: .84rem; font-weight: 600; margin-bottom: 16px; }
+.role-presets { margin: 14px 0 6px; padding: 12px; background: var(--surface-muted); border: 1px dashed var(--border); border-radius: 8px; }
+.presets-label { display: flex; align-items: center; gap: 6px; font-size: .75rem; font-weight: 650; color: var(--muted); margin: 0 0 8px; }
+.preset-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.preset-btn { font-size: .74rem; padding: 0 10px; height: 34px; min-height: 34px; }
+.form-row-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.required-star { color: #a52a2a; font-weight: bold; }
+
+.dark-mode .auth-status-chip { background: #1b2631; border-color: #2b3a4a; }
+.dark-mode .user-display-name { color: #e4ecf3; }
+.dark-mode .role-badge.role-admin { background: #392b1b; color: #f7ca88; border-color: #5a452d; }
+.dark-mode .role-badge.role-attendant { background: #193325; color: #a1e2bf; border-color: #2a553e; }
+.dark-mode .role-presets { background: #17212b; border-color: #2b3a4a; }
+.dark-mode .login-error { background: #3b2323; border-color: #6d3a3a; color: #fca5a5; }
+
+.high-contrast .auth-status-chip { background: #000000; color: #ffffff; border: 2px solid #ffff00; }
+.high-contrast .user-display-name { color: #ffffff; }
+.high-contrast .role-badge { background: #000000; color: #ffff00; border: 2px solid #ffff00; }
+.high-contrast .login-error { background: #000000; color: #ffff00; border: 3px solid #ffff00; }
+.high-contrast .role-presets { background: #000000; border: 2px dashed #ffff00; }
+.high-contrast .preset-btn { background: #000000; color: #ffff00; border: 2px solid #ffff00; }
+
 @media print {
   body * { visibility: hidden !important; }
   .receipt, .receipt * { visibility: visible !important; }

@@ -7,10 +7,14 @@ import {
   ChevronDown,
   CircleDollarSign,
   Clock3,
+  LogIn,
+  LogOut,
   PlugZap,
   Plus,
   Search,
+  Shield,
   SunMoon,
+  UserCheck,
   X,
 } from "lucide-react";
 import {
@@ -25,7 +29,10 @@ import {
 } from "react";
 import { api } from "./api";
 import { useAccessibility } from "./AccessibilityContext";
+import { useAuth } from "./AuthContext";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { LoginModal } from "./LoginModal";
+import { AddSpotModal } from "./AddSpotModal";
 import type { Receipt, Spot, Stats, Ticket, VehicleType } from "./types";
 
 const emptyStats: Stats = {
@@ -58,6 +65,16 @@ function readStoredCheckoutQuery(): { value: string; storageError: boolean } {
 function AppContent() {
   const { fontScale, highContrast, darkMode, changeFontScale, toggleHighContrast, toggleDarkMode } =
     useAccessibility();
+  const {
+    user,
+    role,
+    isAuthenticated,
+    logout,
+    isLoginModalOpen,
+    openLoginModal,
+    closeLoginModal,
+  } = useAuth();
+  const [addSpotOpen, setAddSpotOpen] = useState(false);
   const [storedCheckoutQuery] = useState(readStoredCheckoutQuery);
   const [spots, setSpots] = useState<Spot[]>([]);
   const [stats, setStats] = useState<Stats>(emptyStats);
@@ -185,6 +202,15 @@ function AppContent() {
   }
 
   async function completeCheckout(ticketId: string) {
+    if (role === "guest") {
+      setNotice({
+        text: "Staff sign in required: Only Attendants or Admins can check out vehicles. Press Alt+L to sign in.",
+        error: true,
+      });
+      openLoginModal();
+      return;
+    }
+
     setBusy(true);
     try {
       const result = await api.checkout(ticketId);
@@ -202,6 +228,14 @@ function AppContent() {
   }
 
   function requestCheckout(ticket: Ticket, trigger: HTMLButtonElement) {
+    if (role === "guest") {
+      setNotice({
+        text: "Staff sign in required: Only Attendants or Admins can check out vehicles. Press Alt+L or click Sign in.",
+        error: true,
+      });
+      openLoginModal(trigger);
+      return;
+    }
     modalTriggerRef.current = trigger;
     setPendingCheckout(ticket);
   }
@@ -265,6 +299,57 @@ function AppContent() {
           <button className="icon-button labeled-control" type="button" aria-label={`Toggle ${darkMode ? "light" : "dark"} mode`} aria-pressed={darkMode} onClick={toggleDarkMode}>
             <SunMoon size={18} aria-hidden="true" /><span>{darkMode ? "Dark mode" : "Light mode"}</span>
           </button>
+
+          {/* Authentication & Role-Based Badge */}
+          {isAuthenticated && user ? (
+            <div className="auth-status-chip" aria-label={`Signed in as ${user.full_name} (${role})`}>
+              <span className={`role-badge role-${role}`}>
+                {role === "admin" ? <Shield size={13} aria-hidden="true" /> : <UserCheck size={13} aria-hidden="true" />}
+                <span>{role === "admin" ? "Admin" : "Attendant"}</span>
+              </span>
+              <span className="user-display-name">{user.full_name}</span>
+              <button
+                className="icon-button logout-btn"
+                type="button"
+                aria-label="Sign out"
+                title="Sign out of staff account"
+                onClick={() => {
+                  logout();
+                  setNotice({ text: "Signed out successfully.", error: false });
+                }}
+              >
+                <LogOut size={16} aria-hidden="true" />
+              </button>
+            </div>
+          ) : (
+            <button
+              className="button button-outline signin-btn"
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={isLoginModalOpen}
+              onClick={(e) => openLoginModal(e.currentTarget)}
+              title="Staff sign in (Shortcut: Alt+L)"
+            >
+              <LogIn size={16} aria-hidden="true" />
+              <span>Sign in</span>
+              <span className="shortcut-hint" aria-hidden="true">Alt L</span>
+            </button>
+          )}
+
+          {role === "admin" && (
+            <button
+              className="button button-outline add-spot-nav-btn"
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={addSpotOpen}
+              onClick={() => setAddSpotOpen(true)}
+              title="Add a new parking spot to the facility (Admin only)"
+            >
+              <Plus size={16} aria-hidden="true" />
+              <span>Add spot</span>
+            </button>
+          )}
+
           <button className="button button-primary new-entry" type="button" aria-haspopup="dialog" aria-expanded={modalOpen} onClick={() => openCheckin()}>
             <Plus size={18} aria-hidden="true" /><span>New entry</span>
           </button>
@@ -274,9 +359,15 @@ function AppContent() {
       <main className="page-content">
         <section className="page-heading" aria-labelledby="page-title">
           <div>
-            <p className="eyebrow">PARKING OPERATIONS</p>
-            <h1 id="page-title">Good day, Vansh <span aria-hidden="true">✳</span></h1>
-            <p className="muted">Welcome back, Vansh. Here’s what’s happening in your parking facility today.</p>
+            <p className="eyebrow">PARKING OPERATIONS &bull; RBAC ENABLED</p>
+            <h1 id="page-title">Good day, {user?.full_name ?? "Driver"} <span aria-hidden="true">✳</span></h1>
+            <p className="muted">
+              {role === "admin"
+                ? "Administrator portal: Full control over spot creation, active operations, and revenue analytics."
+                : role === "attendant"
+                ? "Attendant portal: Authorized to manage vehicle entries, check-ins, and final bill checkouts."
+                : "Driver view: Live parking availability is publicly visible. Staff sign-in is required to check out."}
+            </p>
           </div>
           <p className="today-label"><Clock3 size={16} aria-hidden="true" /> Live facility overview</p>
         </section>
@@ -309,7 +400,18 @@ function AppContent() {
                 <h2 id="parking-title">Parking overview</h2>
                 <p className="muted">Select an available spot for check-in or an occupied spot for checkout.</p>
               </div>
-              <span className="live-chip"><span aria-hidden="true" className="live-dot" /> Live</span>
+              <div className="panel-heading-actions">
+                {role === "admin" && (
+                  <button
+                    className="button button-small"
+                    type="button"
+                    onClick={() => setAddSpotOpen(true)}
+                  >
+                    <Plus size={14} aria-hidden="true" /> Add spot
+                  </button>
+                )}
+                <span className="live-chip"><span aria-hidden="true" className="live-dot" /> Live</span>
+              </div>
             </div>
             <div className="parking-toolbar">
               <div className="spot-filter-row">
@@ -358,7 +460,12 @@ function AppContent() {
             <section className="panel checkout-panel" id="checkout-panel" aria-labelledby="checkout-title">
               <div className="section-icon"><ArrowUpRight size={19} aria-hidden="true" /></div>
               <h2 id="checkout-title">Vehicle checkout</h2>
-              <p className="muted">Search by ticket ID or license plate to calculate a final bill.</p>
+              <p className="muted">
+                Search by ticket ID or license plate to calculate a final bill.
+                {role === "guest" && (
+                  <span className="auth-required-hint"> (Staff sign-in required to process checkout)</span>
+                )}
+              </p>
               <form onSubmit={(event) => void searchTickets(event)} className="checkout-form">
                 <label htmlFor="checkout-query">Ticket ID or license plate</label>
                 <div className="input-with-action">
@@ -372,7 +479,13 @@ function AppContent() {
               {ticketResults.map((ticket) => (
                 <article className="ticket-result" key={ticket.id}>
                   <div><strong>{ticket.license_plate}</strong><span>{vehicleLabels[ticket.vehicle_type]} · Spot {ticket.spot_id}</span></div>
-                  <button type="button" className="button button-primary" onClick={(event) => requestCheckout(ticket, event.currentTarget)} disabled={busy}>
+                  <button
+                    type="button"
+                    className="button button-primary"
+                    onClick={(event) => requestCheckout(ticket, event.currentTarget)}
+                    disabled={busy}
+                    title={role === "guest" ? "Sign in as Attendant or Admin to checkout" : "Process vehicle checkout"}
+                  >
                     Check out <ArrowUpRight size={16} aria-hidden="true" />
                   </button>
                 </article>
@@ -389,14 +502,15 @@ function AppContent() {
 
             <section className="help-card" aria-label="Keyboard shortcuts">
               <div><strong>Quick tip</strong><ChevronDown size={16} aria-hidden="true" /></div>
-              <p>Use <kbd>Alt</kbd> + <kbd>N</kbd> for a new vehicle entry, <kbd>Alt</kbd> + <kbd>S</kbd> to search spots.</p>
-              <p><kbd>Alt</kbd> + <kbd>H</kbd> high contrast <span aria-hidden="true">·</span> <kbd>Alt</kbd> + <kbd>D</kbd> dark mode</p>
+              <p>Use <kbd>Alt</kbd> + <kbd>N</kbd> for check-in, <kbd>Alt</kbd> + <kbd>S</kbd> to search spots.</p>
+              <p><kbd>Alt</kbd> + <kbd>L</kbd> staff sign in <span aria-hidden="true">·</span> <kbd>Alt</kbd> + <kbd>H</kbd> contrast <span aria-hidden="true">·</span> <kbd>Alt</kbd> + <kbd>D</kbd> dark</p>
             </section>
           </aside>
         </section>
-        <footer className="page-footer"><span>Parkwise operations console</span><span>Accessible by design</span></footer>
+        <footer className="page-footer"><span>Parkwise operations console</span><span>Role-Based Access Control</span><span>Accessible by design</span></footer>
       </main>
 
+      {/* Checkin Modal */}
       {modalOpen && (
         <CheckinModal
           spots={spots}
@@ -411,6 +525,8 @@ function AppContent() {
           onKeyDown={onModalKeyDown}
         />
       )}
+
+      {/* Checkout Confirmation Dialog */}
       {pendingCheckout && (
         <div
           className="modal-backdrop"
@@ -457,6 +573,28 @@ function AppContent() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Login Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={closeLoginModal}
+        onSuccess={() => {
+          setNotice({ text: "Signed in successfully. Permissions unlocked.", error: false });
+        }}
+      />
+
+      {/* Admin Add Spot Modal */}
+      {role === "admin" && (
+        <AddSpotModal
+          isOpen={addSpotOpen}
+          onClose={() => setAddSpotOpen(false)}
+          onSuccess={(newSpot) => {
+            setNotice({ text: `Parking spot ${newSpot.id} created successfully in ${newSpot.zone}.`, error: false });
+            void refresh();
+          }}
+          onError={(msg) => setNotice({ text: msg, error: true })}
+        />
       )}
     </div>
   );
