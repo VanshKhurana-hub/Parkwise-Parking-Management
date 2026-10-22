@@ -1,11 +1,13 @@
 import type {
   AuthUser,
   CreateSpotInput,
+  HourlyRates,
   LoginResponse,
   Receipt,
   Spot,
   Stats,
   Ticket,
+  Transaction,
   VehicleType,
 } from "./types";
 
@@ -94,4 +96,18 @@ export const api = {
       body: JSON.stringify({ ticket_id: ticketId }),
     }),
   stats: () => request<Stats>("/api/stats"),
+  rates: () => request<HourlyRates>("/api/rates"),
+  updateRates: (rates: HourlyRates) =>
+    request<HourlyRates>("/api/rates", {
+      method: "PUT",
+      body: JSON.stringify(rates),
+    }),
+  transactions: (params?: { limit?: number; action?: string; q?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.action) query.set("action", params.action);
+    if (params?.q) query.set("q", params.q);
+    const qs = query.toString();
+    return request<Transaction[]>(`/api/transactions${qs ? `?${qs}` : ""}`);
+  },
 };

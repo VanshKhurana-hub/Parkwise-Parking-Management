@@ -29,7 +29,7 @@ npm install
 npm run dev
 ```
 
-The development server proxies `/api` requests to the local API. Set `VITE_API_URL` to override the API origin when deploying. In the parking overview, filter slots by All, Available, or Occupied, or search by slot number or vehicle number. Checking out an occupied vehicle requires an accessible confirmation before its spot is released.
+The development server proxies `/api` requests to the local API. Set `VITE_API_URL` to override the API origin when deploying. In the parking overview, filter slots by All, Available, or Occupied, or search by slot number or vehicle number. Checking out an occupied vehicle requires an accessible confirmation before its spot is released. Ticket billing is calculated in Indian Rupees (₹), and administrators can customize hourly rates for standard, EV, and accessible vehicles directly from the dashboard. All operational actions—check-ins, checkouts, spot additions, and rate changes—are recorded in a persistent transaction audit log with search and activity filters.
 
 ## Quality checks
 

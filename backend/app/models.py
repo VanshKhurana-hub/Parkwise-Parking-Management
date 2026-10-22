@@ -17,6 +17,26 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(100), nullable=False)
 
 
+class HourlyRate(Base):
+    __tablename__ = "hourly_rates"
+
+    vehicle_type: Mapped[str] = mapped_column(String(20), primary_key=True)
+    rate_per_hour: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    license_plate: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    spot_id: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    performed_by: Mapped[str] = mapped_column(String(50), nullable=False, default="system")
+    details: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
 class ParkingSpot(Base):
     __tablename__ = "parking_spots"
 

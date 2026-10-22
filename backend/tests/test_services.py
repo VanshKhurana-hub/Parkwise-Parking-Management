@@ -47,7 +47,7 @@ class ParkingServiceTests(unittest.TestCase):
 
         self.assertEqual(checked_out.spot_id, "A-01")
         self.assertGreaterEqual(minutes, 62)
-        self.assertEqual(amount, Decimal("8.00"))
+        self.assertEqual(amount, Decimal("80.00"))
         self.assertEqual(self.session.get(ParkingSpot, "A-01").status, "available")
 
     def test_prevents_incompatible_and_double_occupied_spots(self) -> None:

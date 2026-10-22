@@ -9,6 +9,7 @@ import {
   Clock3,
   LogIn,
   LogOut,
+  Pencil,
   PlugZap,
   Plus,
   Search,
@@ -33,7 +34,9 @@ import { useAuth } from "./AuthContext";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { LoginModal } from "./LoginModal";
 import { AddSpotModal } from "./AddSpotModal";
-import type { Receipt, Spot, Stats, Ticket, VehicleType } from "./types";
+import { EditRatesModal } from "./EditRatesModal";
+import { TransactionLog } from "./TransactionLog";
+import type { HourlyRates, Receipt, Spot, Stats, Ticket, VehicleType } from "./types";
 
 const emptyStats: Stats = {
   total_spots: 0,
@@ -48,7 +51,11 @@ const vehicleLabels: Record<VehicleType, string> = {
   accessible: "Accessible",
 };
 type SpotStatusFilter = "all" | "available" | "occupied";
-const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const currency = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 2,
+});
 const checkoutQueryStorageKey = "parkwise-checkout-query";
 
 function readStoredCheckoutQuery(): { value: string; storageError: boolean } {
@@ -75,6 +82,12 @@ function AppContent() {
     closeLoginModal,
   } = useAuth();
   const [addSpotOpen, setAddSpotOpen] = useState(false);
+  const [editRatesOpen, setEditRatesOpen] = useState(false);
+  const [rates, setRates] = useState<HourlyRates>({
+    standard: 40,
+    ev: 70,
+    accessible: 30,
+  });
   const [storedCheckoutQuery] = useState(readStoredCheckoutQuery);
   const [spots, setSpots] = useState<Spot[]>([]);
   const [stats, setStats] = useState<Stats>(emptyStats);
@@ -94,6 +107,7 @@ function AppContent() {
   const [ticketResults, setTicketResults] = useState<Ticket[]>([]);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [busy, setBusy] = useState(false);
+  const [txRefreshKey, setTxRefreshKey] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const modalTriggerRef = useRef<HTMLElement | null>(null);
 
@@ -101,9 +115,15 @@ function AppContent() {
     if (showLoading) setLoading(true);
     setLoadError("");
     try {
-      const [nextSpots, nextStats] = await Promise.all([api.spots(), api.stats()]);
+      const [nextSpots, nextStats, nextRates] = await Promise.all([
+        api.spots(),
+        api.stats(),
+        api.rates().catch(() => null),
+      ]);
       setSpots(nextSpots);
       setStats(nextStats);
+      if (nextRates) setRates(nextRates);
+      setTxRefreshKey((k) => k + 1);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Unable to load parking data.");
     } finally {
@@ -494,10 +514,25 @@ function AppContent() {
             </section>
 
             <section className="panel rate-panel" aria-labelledby="rates-title">
-              <h2 id="rates-title">Hourly rates</h2>
-              <Rate vehicle="Standard" amount="$4" icon={<CarFront />} />
-              <Rate vehicle="EV charging" amount="$7" icon={<PlugZap />} />
-              <Rate vehicle="Accessible" amount="$3" icon={<Accessibility />} />
+              <div className="panel-heading-row">
+                <h2 id="rates-title">Hourly rates</h2>
+                {role === "admin" && (
+                  <button
+                    className="button button-small"
+                    type="button"
+                    onClick={() => setEditRatesOpen(true)}
+                    title="Admin: Change ticket hourly rates"
+                    aria-haspopup="dialog"
+                    aria-expanded={editRatesOpen}
+                  >
+                    <Pencil size={14} aria-hidden="true" />
+                    <span>Change rates</span>
+                  </button>
+                )}
+              </div>
+              <Rate vehicle="Standard" amount={currency.format(rates.standard)} icon={<CarFront />} />
+              <Rate vehicle="EV charging" amount={currency.format(rates.ev)} icon={<PlugZap />} />
+              <Rate vehicle="Accessible" amount={currency.format(rates.accessible)} icon={<Accessibility />} />
             </section>
 
             <section className="help-card" aria-label="Keyboard shortcuts">
@@ -507,6 +542,9 @@ function AppContent() {
             </section>
           </aside>
         </section>
+
+        <TransactionLog refreshKey={txRefreshKey} />
+
         <footer className="page-footer"><span>Parkwise operations console</span><span>Role-Based Access Control</span><span>Accessible by design</span></footer>
       </main>
 
@@ -592,6 +630,20 @@ function AppContent() {
           onSuccess={(newSpot) => {
             setNotice({ text: `Parking spot ${newSpot.id} created successfully in ${newSpot.zone}.`, error: false });
             void refresh();
+          }}
+          onError={(msg) => setNotice({ text: msg, error: true })}
+        />
+      )}
+
+      {/* Admin Edit Rates Modal */}
+      {role === "admin" && (
+        <EditRatesModal
+          isOpen={editRatesOpen}
+          currentRates={rates}
+          onClose={() => setEditRatesOpen(false)}
+          onSuccess={(updatedRates) => {
+            setRates(updatedRates);
+            setNotice({ text: "Ticket prices updated successfully in INR.", error: false });
           }}
           onError={(msg) => setNotice({ text: msg, error: true })}
         />

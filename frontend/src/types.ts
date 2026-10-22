@@ -22,6 +22,12 @@ export interface CreateSpotInput {
   column: number;
 }
 
+export interface HourlyRates {
+  standard: number;
+  ev: number;
+  accessible: number;
+}
+
 export interface Spot {
   id: string;
   zone: string;
@@ -59,3 +65,15 @@ export interface Receipt {
   duration_minutes: number;
   amount_paid: number;
 }
+
+export interface Transaction {
+  id: string;
+  timestamp: string;
+  action: "CHECK_IN" | "CHECK_OUT" | "RATE_UPDATE" | "SPOT_CREATE" | "SYSTEM_INIT" | string;
+  license_plate: string | null;
+  spot_id: string | null;
+  amount: number | null;
+  performed_by: string;
+  details: string;
+}
+

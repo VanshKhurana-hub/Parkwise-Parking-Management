@@ -8,14 +8,16 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .models import ParkingSpot, ParkingTicket
+from .models import ParkingSpot, ParkingTicket, Transaction
 from .schemas import CheckInRequest
 
-HOURLY_RATES = {
-    "standard": Decimal("4.00"),
-    "ev": Decimal("7.00"),
-    "accessible": Decimal("3.00"),
+DEFAULT_HOURLY_RATES = {
+    "standard": Decimal("40.00"),
+    "ev": Decimal("70.00"),
+    "accessible": Decimal("30.00"),
 }
+HOURLY_RATES = DEFAULT_HOURLY_RATES
+
 COMPATIBLE_SPOTS = {
     "standard": {"standard"},
     "ev": {"ev"},
@@ -23,8 +25,46 @@ COMPATIBLE_SPOTS = {
 }
 
 
+def get_hourly_rates(session: Session) -> dict[str, Decimal]:
+    try:
+        from .models import HourlyRate
+
+        rates = session.scalars(select(HourlyRate)).all()
+        result = {r.vehicle_type: r.rate_per_hour for r in rates}
+        for k, v in DEFAULT_HOURLY_RATES.items():
+            if k not in result:
+                result[k] = v
+        return result
+    except Exception:
+        return DEFAULT_HOURLY_RATES.copy()
+
+
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def log_transaction(
+    session: Session,
+    action: str,
+    details: str,
+    license_plate: str | None = None,
+    spot_id: str | None = None,
+    amount: Decimal | None = None,
+    performed_by: str = "system",
+) -> Transaction:
+    tx = Transaction(
+        id=str(uuid4()),
+        timestamp=now_utc(),
+        action=action,
+        license_plate=license_plate,
+        spot_id=spot_id,
+        amount=amount,
+        performed_by=performed_by,
+        details=details,
+    )
+    session.add(tx)
+    return tx
+
 
 
 def recommend_spot(session: Session, vehicle_type: str) -> ParkingSpot:
@@ -43,7 +83,7 @@ def recommend_spot(session: Session, vehicle_type: str) -> ParkingSpot:
     return min(spots, key=lambda spot: (abs(spot.row - 1) + abs(spot.column - 1), spot.id))
 
 
-def check_in(session: Session, request: CheckInRequest) -> ParkingTicket:
+def check_in(session: Session, request: CheckInRequest, performed_by: str = "driver") -> ParkingTicket:
     active_duplicate = session.scalar(
         select(ParkingTicket).where(
             ParkingTicket.license_plate == request.license_plate,
@@ -77,6 +117,14 @@ def check_in(session: Session, request: CheckInRequest) -> ParkingTicket:
         checked_in_at=now_utc(),
     )
     session.add(ticket)
+    log_transaction(
+        session=session,
+        action="CHECK_IN",
+        details=f"Vehicle {ticket.license_plate} ({ticket.vehicle_type}) checked into spot {spot.id}.",
+        license_plate=ticket.license_plate,
+        spot_id=spot.id,
+        performed_by=performed_by,
+    )
     try:
         session.commit()
     except IntegrityError as error:
@@ -89,7 +137,12 @@ def check_in(session: Session, request: CheckInRequest) -> ParkingTicket:
     return ticket
 
 
-def checkout(session: Session, ticket_id: str, checked_out_at: datetime | None = None) -> tuple[ParkingTicket, int, Decimal]:
+def checkout(
+    session: Session,
+    ticket_id: str,
+    checked_out_at: datetime | None = None,
+    performed_by: str = "attendant",
+) -> tuple[ParkingTicket, int, Decimal]:
     ticket = session.get(ParkingTicket, ticket_id)
     if ticket is None:
         ticket = session.scalar(
@@ -119,7 +172,9 @@ def checkout(session: Session, ticket_id: str, checked_out_at: datetime | None =
     seconds = (checkout_time - checkin_time).total_seconds()
     duration_minutes = max(1, ceil(seconds / 60))
     billable_hours = max(1, ceil(seconds / 3600))
-    amount = (HOURLY_RATES[ticket.vehicle_type] * billable_hours).quantize(Decimal("0.01"))
+    rates = get_hourly_rates(session)
+    rate_per_hour = rates.get(ticket.vehicle_type, DEFAULT_HOURLY_RATES[ticket.vehicle_type])
+    amount = (rate_per_hour * billable_hours).quantize(Decimal("0.01"))
     result = session.execute(
         update(ParkingTicket)
         .where(
@@ -135,6 +190,15 @@ def checkout(session: Session, ticket_id: str, checked_out_at: datetime | None =
     if spot is None:
         raise HTTPException(status_code=500, detail="The ticket references a missing parking spot.")
     spot.status = "available"
+    log_transaction(
+        session=session,
+        action="CHECK_OUT",
+        details=f"Vehicle {ticket.license_plate} checked out from spot {ticket.spot_id}. Duration: {duration_minutes} min. Paid ₹{amount:.2f}.",
+        license_plate=ticket.license_plate,
+        spot_id=ticket.spot_id,
+        amount=amount,
+        performed_by=performed_by,
+    )
     session.commit()
     session.expire(ticket)
     session.refresh(ticket)

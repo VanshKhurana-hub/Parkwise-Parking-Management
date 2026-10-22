@@ -250,7 +250,11 @@ kbd { display: inline-block; border: 1px solid #bdcbc2; border-radius: 4px; back
 .signin-btn { display: inline-flex; align-items: center; gap: 8px; }
 .add-spot-nav-btn { display: inline-flex; align-items: center; gap: 6px; }
 .panel-heading-actions { display: flex; align-items: center; gap: 8px; }
+.panel-heading-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .auth-required-hint { color: #a52a2a; font-weight: 650; font-size: .8rem; }
+.currency-input-wrapper { display: flex; align-items: center; position: relative; }
+.currency-prefix { position: absolute; left: 14px; font-weight: 700; color: var(--muted); font-size: .95rem; pointer-events: none; }
+.currency-input-wrapper input { padding-left: 32px; width: 100%; }
 .login-error { display: flex; align-items: center; gap: 8px; background: #fdf2f2; border: 1px solid #f5c2c2; color: #a52a2a; border-radius: 8px; padding: 10px 14px; font-size: .84rem; font-weight: 600; margin-bottom: 16px; }
 .role-presets { margin: 14px 0 6px; padding: 12px; background: var(--surface-muted); border: 1px dashed var(--border); border-radius: 8px; }
 .presets-label { display: flex; align-items: center; gap: 6px; font-size: .75rem; font-weight: 650; color: var(--muted); margin: 0 0 8px; }
@@ -272,6 +276,89 @@ kbd { display: inline-block; border: 1px solid #bdcbc2; border-radius: 4px; back
 .high-contrast .login-error { background: #000000; color: #ffff00; border: 3px solid #ffff00; }
 .high-contrast .role-presets { background: #000000; border: 2px dashed #ffff00; }
 .high-contrast .preset-btn { background: #000000; color: #ffff00; border: 2px solid #ffff00; }
+.high-contrast .currency-prefix { color: #ffff00; }
+
+/* --- Audit & Transaction Log Styles --- */
+.transaction-log-panel { margin-top: 24px; }
+.tx-header-info { display: flex; flex-direction: column; gap: 4px; }
+.tx-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tx-title-row h2 { margin-bottom: 0; font-size: 1.15rem; }
+.tx-icon { width: 34px; height: 34px; border-radius: 9px; background: #eaf2f9; color: #346d99; display: grid; place-items: center; }
+.tx-count-pill { display: inline-flex; align-items: center; background: #f1f4f8; border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 2px 8px; font-size: .72rem; font-weight: 650; }
+.tx-subtitle { font-size: .8rem; margin: 0; }
+.tx-refresh-btn { display: inline-flex; align-items: center; gap: 6px; }
+.tx-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0 16px; flex-wrap: wrap; }
+.tx-filter-pills { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tx-search { max-width: 320px; }
+.tx-clear-btn { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 4px; display: grid; place-items: center; border-radius: 4px; }
+.tx-clear-btn:hover { color: var(--text); background: var(--surface-muted); }
+.tx-table-container { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.tx-table { width: 100%; border-collapse: collapse; font-size: .83rem; text-align: left; }
+.tx-table th { background: var(--surface-muted); font-weight: 700; color: var(--text); padding: 11px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; font-size: .76rem; letter-spacing: .02em; text-transform: uppercase; }
+.tx-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.tx-row:last-child td { border-bottom: 0; }
+.tx-row:hover { background: var(--surface-muted); }
+.tx-time-cell { white-space: nowrap; color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.tx-badge { display: inline-flex; align-items: center; gap: 5px; font-size: .72rem; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+.tx-badge-checkin { background: #eaf3f0; color: #216b48; border: 1px solid #c2e2d3; }
+.tx-badge-checkout { background: #f0ecf8; color: #69529a; border: 1px solid #d9d0ed; }
+.tx-badge-rate { background: #fbf1e3; color: #9b6428; border: 1px solid #ebd3b6; }
+.tx-badge-spot { background: #eaf2f9; color: #346d99; border: 1px solid #c8dcf0; }
+.tx-badge-system { background: #f1f3f5; color: #556270; border: 1px solid #dde1e5; }
+.tx-badge-default { background: #f1f3f5; color: #556270; border: 1px solid #dde1e5; }
+.tx-spot-tag { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight: 700; background: var(--surface-muted); border: 1px solid var(--border); padding: 2px 7px; border-radius: 5px; font-size: .78rem; }
+.tx-plate-tag { font-weight: 700; letter-spacing: .04em; background: #fbf8eb; color: #7a5f12; border: 1px solid #eedda2; padding: 2px 7px; border-radius: 5px; font-size: .78rem; font-family: ui-monospace, monospace; }
+.tx-amount-cell { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 700; }
+.tx-amount-value { color: #216b48; }
+.tx-role-badge { display: inline-flex; align-items: center; font-size: .72rem; font-weight: 700; padding: 2px 7px; border-radius: 5px; text-transform: capitalize; border: 1px solid transparent; }
+.tx-role-admin { background: #fbf1e3; color: #9b6428; border-color: #ebd3b6; }
+.tx-role-attendant { background: #eaf3f0; color: #216b48; border-color: #c2e2d3; }
+.tx-role-driver { background: #f1f3f5; color: #556270; border-color: #dde1e5; }
+.tx-role-system { background: #eaf2f9; color: #346d99; border-color: #c8dcf0; }
+.tx-details-cell { max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .8rem; }
+.tx-empty-cell { text-align: center; padding: 32px 14px; }
+.spin { animation: txSpin 1s linear infinite; }
+@keyframes txSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Dark mode overrides for Transaction Log */
+.dark-mode .tx-icon { background: #1b2838; color: #8ec3f8; }
+.dark-mode .tx-count-pill { background: #1b2631; border-color: #2b3a4a; color: #a2b4c6; }
+.dark-mode .tx-table-container { background: #17212b; border-color: #2b3a4a; }
+.dark-mode .tx-table th { background: #121a22; border-color: #2b3a4a; color: #e4ecf3; }
+.dark-mode .tx-table td { border-color: #243240; }
+.dark-mode .tx-row:hover { background: #1e2c3a; }
+.dark-mode .tx-badge-checkin { background: #193325; color: #a1e2bf; border-color: #2a553e; }
+.dark-mode .tx-badge-checkout { background: #2f2347; color: #cfb9fa; border-color: #4b3670; }
+.dark-mode .tx-badge-rate { background: #392b1b; color: #f7ca88; border-color: #5a452d; }
+.dark-mode .tx-badge-spot { background: #1b2838; color: #8ec3f8; border-color: #2b4566; }
+.dark-mode .tx-badge-system { background: #222d38; color: #a2b4c6; border-color: #314252; }
+.dark-mode .tx-spot-tag { background: #121a22; border-color: #2b3a4a; color: #e4ecf3; }
+.dark-mode .tx-plate-tag { background: #362e15; color: #fce38a; border-color: #594d23; }
+.dark-mode .tx-amount-value { color: #a1e2bf; }
+.dark-mode .tx-role-admin { background: #392b1b; color: #f7ca88; border-color: #5a452d; }
+.dark-mode .tx-role-attendant { background: #193325; color: #a1e2bf; border-color: #2a553e; }
+.dark-mode .tx-role-driver { background: #222d38; color: #a2b4c6; border-color: #314252; }
+.dark-mode .tx-role-system { background: #1b2838; color: #8ec3f8; border-color: #2b4566; }
+
+/* High contrast overrides for Transaction Log */
+.high-contrast .tx-icon { background: #000000; color: #ffff00; border: 2px solid #ffff00; }
+.high-contrast .tx-count-pill { background: #000000; color: #ffffff; border: 2px solid #ffff00; }
+.high-contrast .tx-table-container { background: #000000; border: 2px solid #ffff00; }
+.high-contrast .tx-table th { background: #000000; color: #ffff00; border-bottom: 2px solid #ffff00; }
+.high-contrast .tx-table td { border-bottom: 1px solid #ffff00; color: #ffffff; }
+.high-contrast .tx-badge { background: #000000; color: #ffff00; border: 2px solid #ffff00; }
+.high-contrast .tx-spot-tag { background: #000000; color: #ffff00; border: 2px solid #ffff00; }
+.high-contrast .tx-plate-tag { background: #000000; color: #ffff00; border: 2px solid #ffff00; }
+.high-contrast .tx-amount-value { color: #ffff00; font-weight: 800; }
+.high-contrast .tx-role-badge { background: #000000; color: #ffff00; border: 2px solid #ffff00; }
+.high-contrast .tx-details-cell { color: #ffffff; }
+
+@media (max-width: 760px) {
+  .tx-toolbar { flex-direction: column; align-items: stretch; }
+  .tx-search { max-width: none; }
+  .tx-filter-pills { overflow-x: auto; padding-bottom: 4px; }
+}
+
 
 @media print {
   body * { visibility: hidden !important; }

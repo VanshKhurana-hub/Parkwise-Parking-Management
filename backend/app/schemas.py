@@ -38,6 +38,20 @@ class UserResponse(BaseModel):
     full_name: str
 
 
+class RatesResponse(BaseModel):
+    standard: float
+    ev: float
+    accessible: float
+
+
+class UpdateRatesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    standard: Annotated[float, Field(gt=0, le=50000)]
+    ev: Annotated[float, Field(gt=0, le=50000)]
+    accessible: Annotated[float, Field(gt=0, le=50000)]
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -106,3 +120,15 @@ class StatsResponse(BaseModel):
     occupied_count: int
     reserved_count: int
     daily_revenue: float
+
+
+class TransactionResponse(BaseModel):
+    id: str
+    timestamp: datetime
+    action: str
+    license_plate: str | None = None
+    spot_id: str | None = None
+    amount: float | None = None
+    performed_by: str
+    details: str
+
