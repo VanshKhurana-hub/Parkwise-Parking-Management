@@ -305,3 +305,4 @@ export function TransactionLog({ refreshKey = 0 }: TransactionLogProps) {
     </section>
   );
 }
+
