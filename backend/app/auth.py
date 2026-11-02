@@ -67,8 +67,18 @@ def get_current_user(
 
 def require_role(*allowed_roles: str):
     normalized = {r.lower() for r in allowed_roles}
+    # Treat 'attendant' and 'biller' as interchangeable for backward compatibility
+    if "biller" in normalized:
+        normalized.add("attendant")
+    if "attendant" in normalized:
+        normalized.add("biller")
 
     def role_checker(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+        if hasattr(current_user, "is_active") and not current_user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User account is deactivated. Contact manager.",
+            )
         if current_user.role.lower() not in normalized:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

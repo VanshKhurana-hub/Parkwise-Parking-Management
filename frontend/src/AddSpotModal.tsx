@@ -48,6 +48,7 @@ export function AddSpotModal({ isOpen, onClose, onSuccess, onError }: AddSpotMod
     try {
       const created = await api.createSpot({
         id: spotId.trim().toUpperCase(),
+        floor: "Floor 1",
         zone: zone.trim(),
         spot_type: spotType,
         row: Number(row),

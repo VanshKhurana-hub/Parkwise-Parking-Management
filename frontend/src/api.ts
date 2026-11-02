@@ -1,13 +1,20 @@
 import type {
+  AdminAnalyticsData,
   AuthUser,
   CreateSpotInput,
+  GuardMeResponse,
+  GuardShift,
+  GuardShiftCreateInput,
   HourlyRates,
   LoginResponse,
+  PersonnelCreateInput,
   Receipt,
   Spot,
+  SpotStatus,
   Stats,
   Ticket,
   Transaction,
+  UpdateRatesInput,
   VehicleType,
 } from "./types";
 
@@ -46,7 +53,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers,
     });
   } catch {
-    throw new Error("Could not connect to the parking service. Check that the API is running.");
+    // If relative request failed, attempt direct connection to backend port 8000
+    if (!API_URL) {
+      try {
+        response = await fetch(`http://127.0.0.1:8000${path}`, {
+          ...init,
+          headers,
+        });
+      } catch {
+        throw new Error("Could not connect to the parking service. Check that the backend is running on http://127.0.0.1:8000.");
+      }
+    } else {
+      throw new Error("Could not connect to the parking service. Check that the API is running.");
+    }
   }
 
   if (!response.ok) {
@@ -71,12 +90,20 @@ export const api = {
     }),
   me: () => request<AuthUser>("/api/auth/me"),
 
-  // Parking spots endpoints
-  spots: () => request<Spot[]>("/api/spots"),
+  // Parking spots endpoints (with Floor support)
+  spots: (floor?: string) => {
+    const query = floor ? `?floor=${encodeURIComponent(floor)}` : "";
+    return request<Spot[]>(`/api/spots${query}`);
+  },
   createSpot: (spot: CreateSpotInput) =>
     request<Spot>("/api/spots", {
       method: "POST",
       body: JSON.stringify(spot),
+    }),
+  updateSpotStatus: (spotId: string, status: SpotStatus) =>
+    request<Spot>(`/api/manager/spots/${encodeURIComponent(spotId)}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
     }),
   recommendation: (vehicleType: VehicleType) =>
     request<{ spot_id: string }>(`/api/spots/recommendation?vehicle_type=${vehicleType}`),
@@ -88,20 +115,24 @@ export const api = {
     phone_number: string;
     spot_id?: string;
   }) => request<Ticket>("/api/checkin", { method: "POST", body: JSON.stringify(input) }),
+
   searchTickets: (query: string) =>
     request<Ticket[]>(`/api/tickets/search?q=${encodeURIComponent(query)}`),
+
   checkout: (ticketId: string) =>
     request<Receipt>("/api/checkout", {
       method: "POST",
       body: JSON.stringify({ ticket_id: ticketId }),
     }),
+
   stats: () => request<Stats>("/api/stats"),
   rates: () => request<HourlyRates>("/api/rates"),
-  updateRates: (rates: HourlyRates) =>
+  updateRates: (rates: UpdateRatesInput) =>
     request<HourlyRates>("/api/rates", {
       method: "PUT",
       body: JSON.stringify(rates),
     }),
+
   transactions: (params?: { limit?: number; action?: string; q?: string }) => {
     const query = new URLSearchParams();
     if (params?.limit) query.set("limit", String(params.limit));
@@ -110,4 +141,42 @@ export const api = {
     const qs = query.toString();
     return request<Transaction[]>(`/api/transactions${qs ? `?${qs}` : ""}`);
   },
+
+  // Admin exclusive analytics dashboard
+  adminAnalytics: () => request<AdminAnalyticsData>("/api/admin/analytics"),
+
+  // Manager personnel management (Billers and Security Guards)
+  personnel: () => request<AuthUser[]>("/api/manager/personnel"),
+  createPersonnel: (input: PersonnelCreateInput) =>
+    request<AuthUser>("/api/manager/personnel", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updatePersonnel: (userId: string, data: Partial<PersonnelCreateInput> & { is_active?: boolean; payout_status?: string }) =>
+    request<AuthUser>(`/api/manager/personnel/${encodeURIComponent(userId)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  // Guard scheduling module
+  guardShifts: (params?: { date?: string; guard_id?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.date) query.set("date", params.date);
+    if (params?.guard_id) query.set("guard_id", params.guard_id);
+    const qs = query.toString();
+    return request<GuardShift[]>(`/api/guard-shifts${qs ? `?${qs}` : ""}`);
+  },
+  createGuardShift: (input: GuardShiftCreateInput) =>
+    request<GuardShift>("/api/guard-shifts", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateGuardShift: (shiftId: string, data: { status?: string; assigned_location?: string; notes?: string }) =>
+    request<GuardShift>(`/api/guard-shifts/${encodeURIComponent(shiftId)}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  // Security guard restricted personal portal
+  guardMe: () => request<GuardMeResponse>("/api/guard/me"),
 };

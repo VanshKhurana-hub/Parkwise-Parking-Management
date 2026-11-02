@@ -164,24 +164,40 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
 
           <div className="role-presets" aria-label="Demo role credentials">
             <p className="presets-label">
-              <User size={14} aria-hidden="true" /> Quick Demo Credentials:
+              <User size={14} aria-hidden="true" /> Quick Demo Role Presets:
             </p>
-            <div className="preset-buttons">
+            <div className="preset-buttons" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
               <button
                 type="button"
                 className="button button-small preset-btn"
                 onClick={() => fillPreset("admin", "admin123")}
                 title="Fill Admin demo credentials"
               >
-                Admin (Full Access)
+                Admin (Analytics & Review)
               </button>
               <button
                 type="button"
                 className="button button-small preset-btn"
-                onClick={() => fillPreset("attendant", "attendant123")}
-                title="Fill Attendant demo credentials"
+                onClick={() => fillPreset("manager", "manager123")}
+                title="Fill Manager demo credentials"
               >
-                Attendant (Checkout)
+                Manager (Floors & Personnel)
+              </button>
+              <button
+                type="button"
+                className="button button-small preset-btn"
+                onClick={() => fillPreset("biller", "biller123")}
+                title="Fill Biller demo credentials"
+              >
+                Biller (Allotment & Billing)
+              </button>
+              <button
+                type="button"
+                className="button button-small preset-btn"
+                onClick={() => fillPreset("guard", "guard123")}
+                title="Fill Security Guard demo credentials"
+              >
+                Guard (Duty & Salary)
               </button>
             </div>
           </div>
