@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from .auth import (
@@ -18,13 +18,15 @@ from .auth import (
     verify_password,
 )
 from .database import Base, SessionLocal, engine, get_session
-from .models import GuardProfile, GuardShift, HourlyRate, ParkingSpot, ParkingTicket, Transaction, User
+from .models import FacilityFloor, GuardProfile, GuardShift, HourlyRate, ParkingSpot, ParkingTicket, Transaction, User
 from .schemas import (
+    AddFloorRequest,
     AdminAnalyticsResponse,
     CheckInRequest,
     CheckoutRequest,
     CheckoutResponse,
     CreateSpotRequest,
+    FloorInfo,
     GuardMeResponse,
     GuardProfileResponse,
     GuardShiftCreateRequest,
@@ -34,6 +36,7 @@ from .schemas import (
     PersonnelCreateRequest,
     PersonnelUpdateRequest,
     RatesResponse,
+    ScaleFloorsRequest,
     SpotResponse,
     StatsResponse,
     TicketResponse,
@@ -105,9 +108,33 @@ def run_database_migrations() -> None:
             except Exception:
                 pass
 
+        # facility_floors table
+        try:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS facility_floors (
+                    name VARCHAR(20) PRIMARY KEY,
+                    level_number INTEGER NOT NULL DEFAULT 1,
+                    default_zone VARCHAR(20) NOT NULL DEFAULT 'Zone A',
+                    is_active BOOLEAN DEFAULT 1
+                )
+            """))
+            conn.commit()
+        except Exception:
+            pass
+
 
 def seed_spots() -> None:
     with SessionLocal() as session:
+        # Seed default facility floors
+        for f_name, lvl, def_zone in [
+            ("Floor 1", 1, "Zone A"),
+            ("Floor 2", 2, "Zone B"),
+            ("Floor 3", 3, "Zone C"),
+        ]:
+            if not session.scalar(select(FacilityFloor).where(FacilityFloor.name == f_name)):
+                session.add(FacilityFloor(name=f_name, level_number=lvl, default_zone=def_zone))
+        session.commit()
+
         if session.scalar(select(func.count()).select_from(ParkingSpot)):
             # Ensure existing spots have appropriate floor assigned
             session.execute(
@@ -640,6 +667,239 @@ def update_spot_status(
         )
 
 
+# --- Dynamic Floor Level Management ---
+
+@app.get("/api/floors", response_model=list[FloorInfo])
+def list_facility_floors(
+    session: Session = Depends(get_session),
+) -> list[FloorInfo]:
+    """Public / Personnel endpoint: View all facility floors with real-time capacity and utilization metrics."""
+    spots = session.scalars(select(ParkingSpot)).all()
+    existing_floors = {getattr(s, "floor", "Floor 1") for s in spots}
+
+    db_floors = session.scalars(
+        select(FacilityFloor).order_by(FacilityFloor.level_number, FacilityFloor.name)
+    ).all()
+    registered_names = {f.name for f in db_floors}
+
+    # Ensure any distinct floor from spots is registered in facility_floors
+    has_new = False
+    for f_name in existing_floors:
+        if f_name not in registered_names:
+            new_f = FacilityFloor(name=f_name, level_number=len(db_floors) + 1, default_zone="Zone A")
+            session.add(new_f)
+            db_floors.append(new_f)
+            has_new = True
+    if has_new:
+        session.commit()
+
+    db_floors.sort(key=lambda x: (x.level_number, x.name))
+
+    results: list[FloorInfo] = []
+    for fl in db_floors:
+        fl_spots = [s for s in spots if (getattr(s, "floor", "Floor 1") == fl.name)]
+        total = len(fl_spots)
+        avail = sum(1 for s in fl_spots if s.status == "available")
+        occ = sum(1 for s in fl_spots if s.status == "occupied")
+        resv = sum(1 for s in fl_spots if s.status == "reserved")
+        maint = sum(1 for s in fl_spots if s.status == "maintenance")
+
+        results.append(
+            FloorInfo(
+                name=fl.name,
+                level_number=fl.level_number,
+                zone_default=fl.default_zone,
+                total_spots=total,
+                available_spots=avail,
+                occupied_spots=occ,
+                reserved_spots=resv,
+                maintenance_spots=maint,
+            )
+        )
+    return results
+
+
+@app.post("/api/floors", response_model=list[FloorInfo], status_code=status.HTTP_201_CREATED)
+def add_facility_floor(
+    request: AddFloorRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "manager")),
+) -> list[FloorInfo]:
+    """Manager/Admin authority: Dynamically add a new parking deck floor with initial generated spots."""
+    with write_lock:
+        existing = session.scalar(select(FacilityFloor).where(FacilityFloor.name == request.name))
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Facility floor '{request.name}' already exists.",
+            )
+
+        count_existing = session.scalar(select(func.count(FacilityFloor.name))) or 0
+        level = request.level_number or (count_existing + 1)
+
+        new_floor = FacilityFloor(
+            name=request.name,
+            level_number=level,
+            default_zone=request.default_zone,
+        )
+        session.add(new_floor)
+
+        spots_count = request.initial_spots_count
+        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        prefix = request.spot_prefix or letters[(level - 1) % len(letters)]
+
+        for i in range(1, spots_count + 1):
+            idx = i
+            spot_id = f"{prefix}-{idx:02d}"
+            while session.scalar(select(ParkingSpot).where(ParkingSpot.id == spot_id)):
+                idx += 1
+                spot_id = f"{prefix}-{idx:02d}"
+
+            spot = ParkingSpot(
+                id=spot_id,
+                floor=request.name,
+                zone=request.default_zone,
+                spot_type=request.spot_type,
+                row=(i - 1) // 4 + 1,
+                column=(i - 1) % 4 + 1,
+                status="available",
+            )
+            session.add(spot)
+
+        log_transaction(
+            session=session,
+            action="FLOOR_ADD",
+            details=f"{current_user.role.title()} {current_user.username} dynamically added {request.name} ({request.default_zone}) with {spots_count} slots.",
+            performed_by=current_user.username,
+        )
+        session.commit()
+        return list_facility_floors(session)
+
+
+@app.post("/api/floors/scale", response_model=list[FloorInfo])
+def scale_facility_floors(
+    request: ScaleFloorsRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "manager")),
+) -> list[FloorInfo]:
+    """Manager/Admin authority: Dynamically scale the total number of floors in the facility up or down."""
+    with write_lock:
+        db_floors = session.scalars(
+            select(FacilityFloor).order_by(FacilityFloor.level_number, FacilityFloor.name)
+        ).all()
+        current_count = len(db_floors)
+        target = request.target_floors
+
+        if target == current_count:
+            return list_facility_floors(session)
+
+        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+        if target > current_count:
+            # Scale UP
+            for lvl in range(current_count + 1, target + 1):
+                floor_name = f"Floor {lvl}"
+                zone_letter = letters[(lvl - 1) % len(letters)]
+                zone_name = f"Zone {zone_letter}"
+
+                existing = session.scalar(select(FacilityFloor).where(FacilityFloor.name == floor_name))
+                if not existing:
+                    session.add(FacilityFloor(
+                        name=floor_name,
+                        level_number=lvl,
+                        default_zone=zone_name,
+                    ))
+
+                for i in range(1, request.spots_per_new_floor + 1):
+                    spot_id = f"{zone_letter}-{i:02d}"
+                    if not session.scalar(select(ParkingSpot).where(ParkingSpot.id == spot_id)):
+                        session.add(ParkingSpot(
+                            id=spot_id,
+                            floor=floor_name,
+                            zone=zone_name,
+                            spot_type="standard" if lvl % 2 != 0 else "ev",
+                            row=(i - 1) // 4 + 1,
+                            column=(i - 1) % 4 + 1,
+                            status="available",
+                        ))
+
+            tx_details = f"{current_user.role.title()} {current_user.username} scaled facility floors up from {current_count} to {target}."
+        else:
+            # Scale DOWN: remove top floors
+            floors_to_remove = db_floors[target:]
+            for fl in floors_to_remove:
+                # Check for active parked vehicles
+                occupied_count = session.scalar(
+                    select(func.count(ParkingSpot.id))
+                    .where(ParkingSpot.floor == fl.name)
+                    .where(ParkingSpot.status == "occupied")
+                ) or 0
+                if occupied_count > 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot remove '{fl.name}': {occupied_count} parked vehicle(s) currently occupying spots on this floor. Check out vehicles first.",
+                    )
+
+                spots_to_del = session.scalars(select(ParkingSpot).where(ParkingSpot.floor == fl.name)).all()
+                del_spot_ids = [s.id for s in spots_to_del]
+                if del_spot_ids:
+                    session.execute(delete(ParkingTicket).where(ParkingTicket.spot_id.in_(del_spot_ids)))
+                for s in spots_to_del:
+                    session.delete(s)
+                session.delete(fl)
+
+            tx_details = f"{current_user.role.title()} {current_user.username} scaled facility floors down from {current_count} to {target}."
+
+        log_transaction(
+            session=session,
+            action="FLOOR_SCALE",
+            details=tx_details,
+            performed_by=current_user.username,
+        )
+        session.commit()
+        return list_facility_floors(session)
+
+
+@app.delete("/api/floors/{floor_name}", status_code=status.HTTP_200_OK)
+def delete_facility_floor(
+    floor_name: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(require_role("admin", "manager")),
+) -> dict[str, str]:
+    """Manager/Admin authority: Remove an empty facility floor level."""
+    with write_lock:
+        occupied = session.scalar(
+            select(func.count(ParkingSpot.id))
+            .where(ParkingSpot.floor == floor_name)
+            .where(ParkingSpot.status == "occupied")
+        ) or 0
+        if occupied > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete '{floor_name}': {occupied} vehicle(s) currently parked on this floor. Check out vehicles first.",
+            )
+
+        spots = session.scalars(select(ParkingSpot).where(ParkingSpot.floor == floor_name)).all()
+        del_spot_ids = [s.id for s in spots]
+        if del_spot_ids:
+            session.execute(delete(ParkingTicket).where(ParkingTicket.spot_id.in_(del_spot_ids)))
+        for s in spots:
+            session.delete(s)
+
+        fl = session.scalar(select(FacilityFloor).where(FacilityFloor.name == floor_name))
+        if fl:
+            session.delete(fl)
+
+        log_transaction(
+            session=session,
+            action="FLOOR_DELETE",
+            details=f"{current_user.role.title()} {current_user.username} deleted floor '{floor_name}' ({len(spots)} slots removed).",
+            performed_by=current_user.username,
+        )
+        session.commit()
+        return {"message": f"Floor '{floor_name}' and its {len(spots)} slots removed successfully."}
+
+
 @app.get("/api/spots/recommendation")
 def get_recommendation(
     vehicle_type: str = Query(pattern="^(standard|ev|accessible)$"),
@@ -658,6 +918,11 @@ def create_checkin(
 ) -> TicketResponse:
     """Operational slot allotment with RegEx plate validation and QR ticket generation."""
     with write_lock:
+        if current_user and current_user.role == "security_guard":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Security guards have read-only monitoring access and cannot allot or book slots. Slot allotment is restricted to Billers.",
+            )
         performer = current_user.username if current_user else "driver"
         ticket = check_in(session, request, performed_by=performer)
         spot = session.get(ParkingSpot, ticket.spot_id)

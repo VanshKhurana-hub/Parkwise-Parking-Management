@@ -114,3 +114,12 @@ class GuardShift(Base):
     assigned_location: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="Scheduled")
     notes: Mapped[str] = mapped_column(String(255), default="")
+
+
+class FacilityFloor(Base):
+    __tablename__ = "facility_floors"
+
+    name: Mapped[str] = mapped_column(String(20), primary_key=True)
+    level_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    default_zone: Mapped[str] = mapped_column(String(20), nullable=False, default="Zone A")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)

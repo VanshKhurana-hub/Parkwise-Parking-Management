@@ -252,6 +252,20 @@ class AdvancedFeaturesAndRBACTests(unittest.TestCase):
         )
         self.assertEqual(forbidden_res.status_code, 403)
 
+        # Guard is forbidden from booking or allotting parking slots (biller only)
+        guard_allot_res = self.client.post(
+            "/api/checkin",
+            json={
+                "license_plate": "DL-01-AB-1234",
+                "vehicle_type": "standard",
+                "phone_number": "9876543210",
+                "spot_id": "A-01",
+            },
+            headers={"Authorization": f"Bearer {self.guard_token}"},
+        )
+        self.assertEqual(guard_allot_res.status_code, 403)
+        self.assertIn("read-only", guard_allot_res.json()["detail"].lower())
+
     # --- 6. Admin Analytics Dashboard Exclusive Access ---
     def test_admin_exclusive_analytics_dashboard(self) -> None:
         # Admin gets analytics
@@ -267,6 +281,95 @@ class AdvancedFeaturesAndRBACTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/admin/analytics", headers={"Authorization": f"Bearer {self.manager_token}"}).status_code, 403)
         self.assertEqual(self.client.get("/api/admin/analytics", headers={"Authorization": f"Bearer {self.biller_token}"}).status_code, 403)
         self.assertEqual(self.client.get("/api/admin/analytics", headers={"Authorization": f"Bearer {self.guard_token}"}).status_code, 403)
+
+    # --- 7. Dynamic Floor Management & Scaling ---
+    def test_dynamic_floor_management_and_scaling(self) -> None:
+        # 1. Public / Personnel can list floors
+        res = self.client.get("/api/floors")
+        self.assertEqual(res.status_code, 200)
+        floors = res.json()
+        initial_count = len(floors)
+
+        # 2. Manager dynamically adds a custom floor
+        add_res = self.client.post(
+            "/api/floors",
+            json={
+                "name": "Floor 4",
+                "default_zone": "Zone D",
+                "spot_type": "standard",
+                "initial_spots_count": 6,
+                "spot_prefix": "D",
+            },
+            headers={"Authorization": f"Bearer {self.manager_token}"},
+        )
+        self.assertEqual(add_res.status_code, 201)
+        updated_floors = add_res.json()
+        self.assertEqual(len(updated_floors), initial_count + 1)
+        f4 = next(f for f in updated_floors if f["name"] == "Floor 4")
+        self.assertEqual(f4["total_spots"], 6)
+
+        # 3. Manager scales floors to 6
+        scale_res = self.client.post(
+            "/api/floors/scale",
+            json={"target_floors": 6, "spots_per_new_floor": 4},
+            headers={"Authorization": f"Bearer {self.manager_token}"},
+        )
+        self.assertEqual(scale_res.status_code, 200)
+        self.assertEqual(len(scale_res.json()), 6)
+
+        # 4. Park a vehicle on Floor 4 to test deletion block
+        checkin_res = self.client.post(
+            "/api/checkin",
+            json={
+                "license_plate": "DL-01-AB-1234",
+                "vehicle_type": "standard",
+                "phone_number": "9876543210",
+                "spot_id": "D-01",
+            },
+            headers={"Authorization": f"Bearer {self.biller_token}"},
+        )
+        self.assertEqual(checkin_res.status_code, 201)
+
+        # 5. Attempting to delete Floor 4 while occupied must return 400
+        del_fail = self.client.delete(
+            "/api/floors/Floor 4",
+            headers={"Authorization": f"Bearer {self.manager_token}"},
+        )
+        self.assertEqual(del_fail.status_code, 400)
+        self.assertIn("parked", del_fail.json()["detail"].lower())
+
+        # 6. Check out vehicle
+        ticket_id = checkin_res.json()["id"]
+        checkout_res = self.client.post(
+            "/api/checkout",
+            json={"ticket_id": ticket_id},
+            headers={"Authorization": f"Bearer {self.biller_token}"},
+        )
+        self.assertEqual(checkout_res.status_code, 200)
+
+        # 7. Now delete Floor 4 successfully
+        del_ok = self.client.delete(
+            "/api/floors/Floor 4",
+            headers={"Authorization": f"Bearer {self.manager_token}"},
+        )
+        self.assertEqual(del_ok.status_code, 200)
+
+        # 8. Guard and Biller are forbidden from adding or deleting floors
+        self.assertEqual(
+            self.client.post(
+                "/api/floors",
+                json={"name": "Floor 99", "initial_spots_count": 2},
+                headers={"Authorization": f"Bearer {self.guard_token}"},
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.delete(
+                "/api/floors/Floor 1",
+                headers={"Authorization": f"Bearer {self.biller_token}"},
+            ).status_code,
+            403,
+        )
 
 
 if __name__ == "__main__":

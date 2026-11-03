@@ -1,7 +1,9 @@
 import type {
+  AddFloorInput,
   AdminAnalyticsData,
   AuthUser,
   CreateSpotInput,
+  FloorInfo,
   GuardMeResponse,
   GuardShift,
   GuardShiftCreateInput,
@@ -9,6 +11,7 @@ import type {
   LoginResponse,
   PersonnelCreateInput,
   Receipt,
+  ScaleFloorsInput,
   Spot,
   SpotStatus,
   Stats,
@@ -123,6 +126,23 @@ export const api = {
     request<Receipt>("/api/checkout", {
       method: "POST",
       body: JSON.stringify({ ticket_id: ticketId }),
+    }),
+
+  // Dynamic Floor Management
+  floors: () => request<FloorInfo[]>("/api/floors"),
+  addFloor: (input: AddFloorInput) =>
+    request<FloorInfo[]>("/api/floors", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  scaleFloors: (input: ScaleFloorsInput) =>
+    request<FloorInfo[]>("/api/floors/scale", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  deleteFloor: (floorName: string) =>
+    request<{ message: string }>(`/api/floors/${encodeURIComponent(floorName)}`, {
+      method: "DELETE",
     }),
 
   stats: () => request<Stats>("/api/stats"),

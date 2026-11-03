@@ -72,6 +72,10 @@ export function QRTicketPass({ ticket, onClose }: QRTicketPassProps) {
         ) : (
           <canvas ref={canvasRef} className="qr-canvas" />
         )}
+        <div className="qr-plate-banner" aria-label={`Vehicle registration plate: ${ticket.license_plate}`}>
+          <span className="qr-plate-ind" aria-hidden="true">IND</span>
+          <strong className="qr-plate-number">{ticket.license_plate}</strong>
+        </div>
         <p className="qr-caption">Scan at touchless exit gate for automated billing</p>
       </div>
 

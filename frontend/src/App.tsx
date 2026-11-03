@@ -1,5 +1,6 @@
 import {
   Check,
+  ShieldAlert,
   X,
 } from "lucide-react";
 import {
@@ -63,6 +64,7 @@ function AppContent() {
   const [spots, setSpots] = useState<Spot[]>([]);
   const [, setStats] = useState<Stats>(emptyStats);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
+  const [selectedSpotForBooking, setSelectedSpotForBooking] = useState<string | null>(null);
   const [qrScannerModalOpen, setQrScannerModalOpen] = useState(false);
   const [txRefreshKey, setTxRefreshKey] = useState(0);
 
@@ -117,17 +119,52 @@ function AppContent() {
     notify(`QR decoded: #${ticketId.slice(0, 8)}. Ready for checkout calculation.`, false);
   }
 
+  function handleSelectSpotFromMonitor(spot: Spot) {
+    if (role === "security_guard") {
+      notify("Security guards have read-only monitoring access. Slot allotment is restricted to Billers.", true);
+      return;
+    }
+    if (role !== "biller" && role !== "attendant") {
+      notify("Slot allotment permission is restricted to Billers.", true);
+      return;
+    }
+    if (spot.status === "occupied") {
+      notify(`Spot ${spot.id} is occupied by vehicle ${spot.license_plate || "N/A"}.`, true);
+      return;
+    }
+    if (spot.status === "maintenance") {
+      notify(`Spot ${spot.id} is currently under maintenance and cannot be allotted.`, true);
+      return;
+    }
+    if (spot.status === "reserved") {
+      notify(`Spot ${spot.id} is reserved and cannot be allotted right now.`, true);
+      return;
+    }
+
+    // Available slot -> open in allotment window
+    setSelectedSpotForBooking(spot.id);
+    setCurrentView("allotment");
+    notify(`Spot ${spot.id} (${spot.floor || "Floor 1"}, ${spot.zone}) opened for vehicle allotment.`, false);
+  }
+
   return (
-    <div className="app-shell">
-      {/* Menu Bar with distinct task tabs */}
+    <div className="app-shell sidebar-layout">
+      {/* Navigation bar on the left side of the page */}
       <Navbar
         currentView={currentView}
-        onNavigate={setCurrentView}
+        onNavigate={(view) => {
+          // If manually navigating away, clear preselected spot if moving to allotment without a spot
+          if (view !== "allotment") {
+            setSelectedSpotForBooking(null);
+          }
+          setCurrentView(view);
+        }}
         onOpenSignIn={() => setGuestMode(false)}
         onNotify={notify}
       />
 
-      <main className="page-content">
+      <div className="app-main-layout">
+        <main className="page-content">
         {/* Global Toast Notification */}
         {notice && (
           <div
@@ -149,11 +186,31 @@ function AppContent() {
 
         {/* 1. Dedicated Page: Slot Allotment (Arrivals, RegEx Plate Validation, QR Generation) */}
         {currentView === "allotment" && (
-          <AllotmentPage
-            spots={spots}
-            onRefreshSpots={refresh}
-            onNotify={notify}
-          />
+          role === "security_guard" ? (
+            <div className="access-denied-panel" role="alert">
+              <ShieldAlert size={48} className="access-denied-icon" aria-hidden="true" />
+              <h3>Allotment Permission Restricted</h3>
+              <p>
+                Security guards have read-only duty timetable and slot monitoring access.
+                Vehicle allotment and ticket issuance permissions are strictly restricted to Front Desk Billers.
+              </p>
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => setCurrentView("guard_portal")}
+              >
+                Return to My Timetable
+              </button>
+            </div>
+          ) : (
+            <AllotmentPage
+              spots={spots}
+              initialSpotId={selectedSpotForBooking}
+              onClearInitialSpot={() => setSelectedSpotForBooking(null)}
+              onRefreshSpots={refresh}
+              onNotify={notify}
+            />
+          )
         )}
 
         {/* 2. Dedicated Page: Vehicle Checkout & Automated Tiered Billing */}
@@ -181,6 +238,7 @@ function AppContent() {
             spots={spots}
             role={role}
             onRefresh={refresh}
+            onSelectSpot={handleSelectSpotFromMonitor}
             onNotify={notify}
           />
         )}
@@ -234,6 +292,7 @@ function AppContent() {
           <span>Logged in as: <strong>{user?.full_name || "Guest Driver"}</strong> ({role})</span>
         </footer>
       </main>
+    </div>
 
       {/* Floating QR Camera Scanner Modal */}
       <QRScannerModal

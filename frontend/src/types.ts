@@ -27,6 +27,31 @@ export interface CreateSpotInput {
   column: number;
 }
 
+export interface FloorInfo {
+  name: string;
+  level_number: number;
+  zone_default: string;
+  total_spots: number;
+  available_spots: number;
+  occupied_spots: number;
+  reserved_spots: number;
+  maintenance_spots: number;
+}
+
+export interface AddFloorInput {
+  name: string;
+  level_number?: number;
+  default_zone?: string;
+  spot_type?: VehicleType;
+  initial_spots_count?: number;
+  spot_prefix?: string;
+}
+
+export interface ScaleFloorsInput {
+  target_floors: number;
+  spots_per_new_floor?: number;
+}
+
 export interface TierItem {
   vehicle_type: VehicleType;
   hourly_rate: number;

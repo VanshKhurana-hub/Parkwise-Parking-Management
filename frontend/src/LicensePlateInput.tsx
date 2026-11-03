@@ -60,7 +60,7 @@ export function LicensePlateInput({
         )}
       </div>
 
-      <div className="plate-input-wrapper">
+      <div className={`plate-input-wrapper ${value.trim().length > 0 ? (isValid ? "is-valid" : "is-invalid") : ""}`}>
         <span className="plate-country-badge" aria-hidden="true">
           <CarFront size={16} />
           <span>IND</span>
@@ -72,10 +72,12 @@ export function LicensePlateInput({
           required={required}
           disabled={disabled}
           autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
           placeholder={placeholder}
           value={value}
           onChange={handleChange}
-          className={`plate-input ${value && !isValid ? "input-invalid" : ""}`}
+          className="plate-input"
           maxLength={15}
         />
       </div>

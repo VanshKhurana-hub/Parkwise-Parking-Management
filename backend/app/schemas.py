@@ -164,6 +164,37 @@ class UpdateRatesRequest(BaseModel):
     daily_threshold_hours: int | None = 8
 
 
+# --- Dynamic Floor Schemas ---
+
+class FloorInfo(BaseModel):
+    name: str
+    level_number: int
+    zone_default: str
+    total_spots: int
+    available_spots: int
+    occupied_spots: int
+    reserved_spots: int
+    maintenance_spots: int
+
+
+class AddFloorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)]
+    level_number: int | None = None
+    default_zone: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)] = "Zone A"
+    spot_type: VehicleType = "standard"
+    initial_spots_count: Annotated[int, Field(ge=0, le=50)] = 8
+    spot_prefix: Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=1, max_length=5)] | None = None
+
+
+class ScaleFloorsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_floors: Annotated[int, Field(ge=1, le=20)]
+    spots_per_new_floor: Annotated[int, Field(ge=1, le=30)] = 8
+
+
 # --- Spots Schemas ---
 
 class CreateSpotRequest(BaseModel):

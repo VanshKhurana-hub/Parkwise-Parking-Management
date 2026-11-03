@@ -7,15 +7,28 @@ import type { Spot, Ticket, VehicleType } from "./types";
 
 interface AllotmentPageProps {
   spots: Spot[];
+  initialSpotId?: string | null;
+  onClearInitialSpot?: () => void;
   onRefreshSpots: () => Promise<void>;
   onNotify: (text: string, error?: boolean) => void;
 }
 
-export function AllotmentPage({ spots, onRefreshSpots, onNotify }: AllotmentPageProps) {
-  const [vehicleType, setVehicleType] = useState<VehicleType>("standard");
+export function AllotmentPage({
+  spots,
+  initialSpotId,
+  onClearInitialSpot,
+  onRefreshSpots,
+  onNotify,
+}: AllotmentPageProps) {
+  // Pre-seed vehicle type and spot if initialSpotId was clicked from Floor Slot Monitor
+  const targetSpot = initialSpotId ? spots.find((s) => s.id === initialSpotId) : null;
+
+  const [vehicleType, setVehicleType] = useState<VehicleType>(
+    targetSpot ? targetSpot.spot_type : "standard",
+  );
   const [licensePlate, setLicensePlate] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [spotId, setSpotId] = useState("");
+  const [spotId, setSpotId] = useState(targetSpot ? targetSpot.id : "");
   const [busy, setBusy] = useState(false);
   const [recommendedSpot, setRecommendedSpot] = useState("");
   const [generatedTicket, setGeneratedTicket] = useState<Ticket | null>(null);
@@ -23,6 +36,17 @@ export function AllotmentPage({ spots, onRefreshSpots, onNotify }: AllotmentPage
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [slotFilter, setSlotFilter] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Sync with initialSpotId when arriving from Floor Slot Monitor
+  useEffect(() => {
+    if (initialSpotId) {
+      const match = spots.find((s) => s.id === initialSpotId);
+      if (match) {
+        setVehicleType(match.spot_type);
+        setSpotId(match.id);
+      }
+    }
+  }, [initialSpotId, spots]);
 
   const availableSpots = spots.filter(
     (spot) => spot.status === "available" && spot.spot_type === vehicleType,
@@ -66,12 +90,33 @@ export function AllotmentPage({ spots, onRefreshSpots, onNotify }: AllotmentPage
       (recommendation) => {
         if (!current) return;
         setRecommendedSpot(recommendation.spot_id);
-        setSpotId(recommendation.spot_id);
+        setSpotId((prev) => {
+          // If a valid available spot was already chosen/preselected for this vehicle type, preserve it
+          if (
+            prev &&
+            spots.some(
+              (s) => s.id === prev && s.spot_type === vehicleType && s.status === "available",
+            )
+          ) {
+            return prev;
+          }
+          return recommendation.spot_id;
+        });
       },
       () => {
         if (current) {
           setRecommendedSpot("");
-          setSpotId("");
+          setSpotId((prev) => {
+            if (
+              prev &&
+              spots.some(
+                (s) => s.id === prev && s.spot_type === vehicleType && s.status === "available",
+              )
+            ) {
+              return prev;
+            }
+            return "";
+          });
         }
       },
     );
@@ -83,7 +128,13 @@ export function AllotmentPage({ spots, onRefreshSpots, onNotify }: AllotmentPage
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!licensePlate.trim()) {
-      onNotify("Please enter a valid license plate.", true);
+      onNotify("Please enter a valid license plate registration number.", true);
+      return;
+    }
+
+    const cleanPhone = phoneNumber.replace(/\D/g, "");
+    if (cleanPhone.length !== 10) {
+      onNotify("Driver contact phone number must be exactly 10 digits.", true);
       return;
     }
 
@@ -92,7 +143,7 @@ export function AllotmentPage({ spots, onRefreshSpots, onNotify }: AllotmentPage
       const ticket = await api.checkIn({
         license_plate: licensePlate.trim().toUpperCase(),
         vehicle_type: vehicleType,
-        phone_number: phoneNumber.trim(),
+        phone_number: cleanPhone,
         ...(spotId ? { spot_id: spotId } : {}),
       });
 
@@ -100,6 +151,7 @@ export function AllotmentPage({ spots, onRefreshSpots, onNotify }: AllotmentPage
       onNotify(`Slot ${ticket.spot_id} successfully allotted to ${ticket.license_plate}. QR Pass generated.`, false);
       setLicensePlate("");
       setPhoneNumber("");
+      onClearInitialSpot?.();
       await onRefreshSpots();
     } catch (err) {
       onNotify(err instanceof Error ? err.message : "Slot allotment failed.", true);
@@ -129,6 +181,35 @@ export function AllotmentPage({ spots, onRefreshSpots, onNotify }: AllotmentPage
         {/* Form Panel */}
         <article className="allotment-form-panel">
           <form onSubmit={handleSubmit} className="allotment-form">
+            {/* Target Slot Selected from Floor Slot Monitor Banner */}
+            {initialSpotId && selectedSpot && (
+              <div className="preselected-slot-callout" role="status" aria-live="polite">
+                <div className="callout-info">
+                  <div className="callout-tag-wrap">
+                    <Sparkles size={13} className="callout-sparkle-icon" aria-hidden="true" />
+                    <span className="callout-tag">Target Bay Preselected From Floor Monitor</span>
+                  </div>
+                  <div className="callout-details">
+                    <strong className="callout-spot-id">Slot {selectedSpot.id}</strong>
+                    <span className="callout-meta">
+                      &bull; {selectedSpot.floor} ({selectedSpot.zone}) &bull; Bay R{selectedSpot.row}, C{selectedSpot.column}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="callout-clear-btn"
+                  onClick={() => {
+                    onClearInitialSpot?.();
+                    setSpotId(recommendedSpot);
+                  }}
+                  title="Switch to automatic recommendation"
+                >
+                  Change Slot
+                </button>
+              </div>
+            )}
+
             {/* Strict RegEx License Plate Field */}
             <LicensePlateInput
               value={licensePlate}
@@ -155,17 +236,33 @@ export function AllotmentPage({ spots, onRefreshSpots, onNotify }: AllotmentPage
                 </select>
               </div>
 
-              <div>
-                <label htmlFor="allot-phone">Driver Contact Phone</label>
-                <input
-                  id="allot-phone"
-                  type="tel"
-                  required
-                  placeholder="+91 98765 43210"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  disabled={busy}
-                />
+              <div className="phone-field-group">
+                <div className="field-label-row">
+                  <label htmlFor="allot-phone">
+                    Driver Contact Phone <span className="required-star" aria-hidden="true">*</span>
+                  </label>
+                  <span className="phone-count-badge" aria-live="polite">
+                    {phoneNumber.length}/10 digits
+                  </span>
+                </div>
+                <div className="phone-input-wrapper">
+                  <span className="phone-prefix-tag" aria-hidden="true">+91</span>
+                  <input
+                    id="allot-phone"
+                    type="tel"
+                    inputMode="numeric"
+                    required
+                    maxLength={10}
+                    placeholder="9876543210"
+                    value={phoneNumber}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/\D/g, "").slice(0, 10);
+                      setPhoneNumber(clean);
+                    }}
+                    disabled={busy}
+                    className="phone-input"
+                  />
+                </div>
               </div>
             </div>
 
